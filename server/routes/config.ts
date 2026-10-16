@@ -4,6 +4,7 @@ import { allow, createSession, currentUser, hashPassword, passwordProblem, rateL
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, h, int, oneOf, str } from '../lib.ts';
 import { checkSetupCode, getSettings, needsSetup, saveSettings } from '../settings.ts';
+import { paystackEnabled } from '../paystack.ts';
 
 /** First-run setup, hotel settings, room types, rooms and the facility price list. */
 export const config = Router();
@@ -50,7 +51,7 @@ config.get(
     const s = getSettings();
     const items = all('SELECT id, facility, name, price FROM facility_items WHERE active = 1 ORDER BY facility, price');
     const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms r JOIN room_types t ON t.id = r.room_type_id WHERE r.active = 1 AND t.active = 1')!.n;
-    res.json({ ...s, bank_details: undefined, facility_items: items, bookable: rooms > 0 });
+    res.json({ ...s, bank_details: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0 });
   }),
 );
 
@@ -85,6 +86,7 @@ config.put(
       check_out_time: time('check_out_time'),
       bank_details: opt('bank_details', 300),
       invoice_note: opt('invoice_note', 300),
+      deposit_percent: b.deposit_percent === undefined || b.deposit_percent === '' ? 0 : int(b, 'deposit_percent', { min: 0, max: 100 }),
       highlights: highlights.map((x: unknown) => {
         const o = (x ?? {}) as Record<string, unknown>;
         return { title: str(o, 'title', { max: 40 }), text: str(o, 'text', { max: 90, optional: true }) };

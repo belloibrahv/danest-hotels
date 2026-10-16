@@ -25,6 +25,23 @@ export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   pos: 'POS / card',
 };
 
+/** Every way a folio can be settled, including ones staff don't key in by hand. */
+export const ALL_PAYMENT_LABELS: Record<string, string> = { ...PAYMENT_LABELS, online: 'Paid online (Paystack)', company: 'Billed to company' };
+
+export const RATE_RULE_KINDS = ['percent', 'amount', 'fixed'] as const;
+export type RateRuleKind = (typeof RATE_RULE_KINDS)[number];
+export const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+export const MESSAGE_TEMPLATES = ['booking_received', 'booking_confirmed', 'pre_arrival', 'balance_due', 'thank_you'] as const;
+export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
+export const MESSAGE_TEMPLATE_LABELS: Record<MessageTemplate, string> = {
+  booking_received: 'Booking received',
+  booking_confirmed: 'Booking confirmed',
+  pre_arrival: 'Day-before reminder',
+  balance_due: 'Balance reminder',
+  thank_you: 'Thank you after stay',
+};
+
 /** Ways a bar or facility sale can be settled: paid now, or posted to an in-house guest's room folio. */
 export const CHARGE_METHODS = [...PAYMENT_METHODS, 'room'] as const;
 export type ChargeMethod = (typeof CHARGE_METHODS)[number];
@@ -124,6 +141,8 @@ export interface HotelSettings {
   bank_details: string;
   invoice_note: string;
   highlights: { title: string; text: string }[];
+  /** Share of the stay a guest can pay online when booking (0 = online payment off). */
+  deposit_percent: number;
 }
 
 export const DEFAULT_SETTINGS: HotelSettings = {
@@ -138,6 +157,7 @@ export const DEFAULT_SETTINGS: HotelSettings = {
   bank_details: '',
   invoice_note: 'Thank you for staying with us.',
   highlights: [],
+  deposit_percent: 0,
 };
 
 export const TICKET_PRIORITIES = ['low', 'normal', 'urgent'] as const;

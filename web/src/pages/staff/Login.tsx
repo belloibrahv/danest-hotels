@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { LoungeScene } from '../../components/illustrations';
-import { ErrorBox, Field, Icon, useSubmit, useToast } from '../../components/ui';
+import { ErrorBox, Field, Icon, useSubmit, useToast } from '../../components/kit';
 import { homeFor, useAuth } from '../../lib/auth';
 
 // Shown only in development / demo builds so the client can click through each role.

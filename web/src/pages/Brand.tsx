@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { EmptyIllo, GymScene, LoungeScene, PoolScene, RoomScene } from '../components/illustrations';
-import { Icon } from '../components/ui';
+import { Icon } from '../components/kit';
 import { SiteFooter, SiteNav } from './Home';
 
 const COLORS = [

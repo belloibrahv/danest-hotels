@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ID_LABELS, ID_TYPES, type IdType } from '../../../../shared/constants';
 import { useDesk } from '../../components/Desk';
-import { Drawer, ErrorBox, Field, Icon, Loading, StatusBadge, useSubmit, useToast } from '../../components/ui';
+import { Drawer, ErrorBox, Field, Icon, Loading, StatusBadge, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate, naira } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import type { Reservation } from './ReservationDrawer';

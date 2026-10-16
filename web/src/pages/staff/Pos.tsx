@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CHARGE_LABELS, CHARGE_METHODS, type ChargeMethod } from '../../../../shared/constants';
 import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Field, Loading, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
+import { Card, EmptyState, ErrorBox, Field, Loading, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/kit';
 import { api, fmtTime, naira } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 

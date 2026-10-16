@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useDesk } from '../../components/Desk';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, useSubmit, useToast } from '../../components/ui';
+import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, useSubmit, useToast } from '../../components/kit';
 import { addDays, api, fmtDate, fmtDateLong, fmtDateTime, naira, pct } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import type { Kpis } from './Dashboard';

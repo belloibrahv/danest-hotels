@@ -344,6 +344,108 @@ const MIGRATIONS: string[] = [
     summary TEXT NOT NULL
   );
   `,
+
+  // 3 — nightly pricing & rate rules, corporate accounts (city ledger), online payments, guest messages
+  `
+  CREATE TABLE reservation_nights (
+    reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    rate INTEGER NOT NULL CHECK (rate >= 0),
+    PRIMARY KEY (reservation_id, date)
+  );
+  CREATE INDEX idx_rn_date ON reservation_nights(date);
+  INSERT INTO reservation_nights (reservation_id, date, rate)
+    WITH RECURSIVE n(id, d, out, rate) AS (
+      SELECT id, check_in, check_out, rate FROM reservations
+      UNION ALL SELECT id, date(d, '+1 day'), out, rate FROM n WHERE date(d, '+1 day') < out
+    )
+    SELECT id, d, rate FROM n;
+
+  CREATE TABLE rate_rules (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    room_type_id INTEGER REFERENCES room_types(id),
+    start_date TEXT,
+    end_date TEXT,
+    weekdays TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('percent','amount','fixed')),
+    value INTEGER NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE companies (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    contact_name TEXT,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    discount_pct INTEGER NOT NULL DEFAULT 0 CHECK (discount_pct BETWEEN 0 AND 90),
+    credit_limit INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit >= 0),
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  ALTER TABLE reservations ADD COLUMN company_id INTEGER REFERENCES companies(id);
+  ALTER TABLE reservations ADD COLUMN bill_to_company INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE reservations ADD COLUMN rate_note TEXT;
+
+  CREATE TABLE payments_v2 (
+    id INTEGER PRIMARY KEY,
+    reservation_id INTEGER NOT NULL REFERENCES reservations(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos','online','company')),
+    reference TEXT UNIQUE,
+    date TEXT NOT NULL,
+    received_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO payments_v2 (id, reservation_id, amount, method, date, received_by, created_at)
+    SELECT id, reservation_id, amount, method, date, received_by, created_at FROM payments;
+  DROP TABLE payments;
+  ALTER TABLE payments_v2 RENAME TO payments;
+  CREATE INDEX idx_payments_date ON payments(date);
+  CREATE INDEX idx_payments_res ON payments(reservation_id);
+
+  CREATE TABLE company_payments (
+    id INTEGER PRIMARY KEY,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos')),
+    reference TEXT,
+    date TEXT NOT NULL,
+    received_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_cp_date ON company_payments(date);
+
+  CREATE TABLE online_payments (
+    reference TEXT PRIMARY KEY,
+    reservation_id INTEGER NOT NULL REFERENCES reservations(id),
+    amount INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('initialized','success','failed')),
+    gateway_response TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    verified_at TEXT
+  );
+
+  CREATE TABLE messages (
+    id INTEGER PRIMARY KEY,
+    reservation_id INTEGER REFERENCES reservations(id),
+    template TEXT NOT NULL,
+    channel TEXT NOT NULL CHECK (channel IN ('sms','whatsapp')),
+    to_phone TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('sent','failed','manual')),
+    provider_ref TEXT,
+    error TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_messages_res ON messages(reservation_id);
+  `,
 ];
 
 {

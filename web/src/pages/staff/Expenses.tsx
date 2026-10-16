@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { EXPENSE_CATEGORIES, PAYMENT_LABELS, PAYMENT_METHODS, type ExpenseCategory, type PaymentMethod } from '../../../../shared/constants';
 import { HBars } from '../../components/charts';
 import { DateRange, useRange } from '../../components/DateRange';
-import { Card, Empty, ErrorBox, Field, Loading, PageHead, useSubmit, useToast } from '../../components/ui';
+import { Card, Empty, ErrorBox, Field, Loading, PageHead, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate, naira, todayISO } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 

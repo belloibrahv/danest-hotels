@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { PAYMENT_LABELS, type HotelSettings } from '../../../../shared/constants';
-import { ErrorBox, Icon, Loading } from '../../components/ui';
+import { ErrorBox, Icon, Loading } from '../../components/kit';
 import { fmtDate, fmtDateLong, naira, todayISO } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { balanceOf, type Reservation } from './ReservationDrawer';

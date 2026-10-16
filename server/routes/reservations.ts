@@ -9,6 +9,7 @@ import {
 } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
+import { priceStay, saveNights, trimNights } from '../pricing.ts';
 import { logRoom } from './housekeeping.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, code, date, daysBetween, h, int, isDate, oneOf, str, today } from '../lib.ts';
@@ -86,17 +87,20 @@ export const balanceOf = (id: number) =>
 
 type ResRow = { id: number; status: ReservationStatus; room_id: number | null; room_type_id: number; check_in: string; check_out: string; code: string; total: number; rate: number; nights: number };
 
-function load(id: number): ResRow {
+function load(id: number): Stay {
   if (!Number.isInteger(id)) throw new HttpError(404, 'Reservation not found');
-  const r = get<ResRow>('SELECT id, status, room_id, room_type_id, check_in, check_out, code, total, rate, nights FROM reservations WHERE id = ?', id);
+  const r = get<Stay>('SELECT id, status, room_id, room_type_id, check_in, check_out, code, total, rate, nights, company_id, rate_note FROM reservations WHERE id = ?', id);
   if (!r) throw new HttpError(404, 'Reservation not found');
   return r;
 }
 
-/** Change the length of a stay and re-price it at its agreed nightly rate. */
-function reprice(id: number, checkIn: string, checkOut: string, rate: number) {
-  const nights = daysBetween(checkIn, checkOut);
-  run('UPDATE reservations SET check_out = ?, nights = ?, total = ? WHERE id = ?', checkOut, nights, nights * rate, id);
+type Stay = ResRow & { company_id: number | null; rate_note: string | null };
+
+/** Add nights to the end of a stay, priced as they would be sold today (same company, same manager rate). */
+function extendNights(r: Stay, newOut: string) {
+  const override = r.rate_note === 'Manager rate' ? r.rate : null;
+  const quote = priceStay(r.room_type_id, r.check_out, newOut, { companyId: r.company_id, override });
+  saveNights(r.id, quote.nights);
 }
 
 const LIST_SQL = `
@@ -104,12 +108,14 @@ const LIST_SQL = `
          r.checked_in_at, r.checked_out_at,
          g.id AS guest_id, g.name AS guest_name, g.phone AS guest_phone, g.email AS guest_email, g.vip AS guest_vip,
          t.name AS room_type, rm.number AS room_number, r.room_id, r.room_type_id,
+         r.company_id, r.bill_to_company, r.rate_note, co.name AS company_name,
          ${CHARGES_SQL} AS charges,
          ${PAID_SQL} AS paid
     FROM reservations r
     JOIN guests g ON g.id = r.guest_id
     JOIN room_types t ON t.id = r.room_type_id
-    LEFT JOIN rooms rm ON rm.id = r.room_id`;
+    LEFT JOIN rooms rm ON rm.id = r.room_id
+    LEFT JOIN companies co ON co.id = r.company_id`;
 
 // ---------- room types & rooms ----------
 
@@ -272,8 +278,8 @@ reservations.get(
     );
     // The folio, line by line, the way a guest sees it on their bill.
     const lines: { date: string; kind: string; description: string; amount: number }[] = [];
-    for (let d = r.check_in; d < r.check_out; d = addDays(d, 1)) {
-      lines.push({ date: d, kind: 'room', description: `${r.room_type}${r.room_number ? ` · Room ${r.room_number}` : ''}`, amount: r.rate });
+    for (const n of all<{ date: string; rate: number }>('SELECT date, rate FROM reservation_nights WHERE reservation_id = ? ORDER BY date', id)) {
+      lines.push({ date: n.date, kind: 'room', description: `${r.room_type}${r.room_number ? ` · Room ${r.room_number}` : ''}`, amount: n.rate });
     }
     for (const s of all<{ id: number; date: string; receipt_no: string; total: number; items: string }>(
       `SELECT s.id, s.date, s.receipt_no, s.total,
@@ -325,26 +331,28 @@ reservations.post(
     const guest = guestFields((b.guest ?? {}) as Record<string, unknown>);
     const checkIn = date(b, 'check_in');
     const checkOut = date(b, 'check_out');
-    const nights = validateStay(checkIn, checkOut);
+    validateStay(checkIn, checkOut);
     const typeId = int(b, 'room_type_id', { min: 1 });
     const adults = int(b, 'adults', { min: 1, max: 6 });
     const source = oneOf(b, 'source', RESERVATION_SOURCES);
+    const companyId = b.company_id ? int(b, 'company_id', { min: 1 }) : null;
+    const billToCompany = !!companyId && b.bill_to_company === true;
     const notes = str(b, 'notes', { max: 500, optional: true });
     const roomId = int(b, 'room_id', { min: 1, optional: true });
     const checkInNow = b.check_in_now === true;
     const type = get<{ rate: number }>('SELECT rate FROM room_types WHERE id = ? AND active = 1', typeId);
     if (!type) throw bad('Unknown room type');
 
-    // Only a manager may sell below or above the published rate.
-    let rate = type.rate;
+    // Only a manager may set the price by hand; everyone else sells at the computed rate.
+    let override: number | null = null;
     if (b.rate !== undefined && b.rate !== '' && b.rate !== null) {
-      const custom = int(b, 'rate', { min: 1000, max: 5_000_000 });
-      if (custom !== type.rate && user.role !== 'manager') throw new HttpError(403, 'Only a manager can change the room rate');
-      rate = custom;
+      override = int(b, 'rate', { min: 1000, max: 5_000_000 });
+      if (user.role !== 'manager') throw new HttpError(403, 'Only a manager can change the room rate');
     }
+    const quote = priceStay(typeId, checkIn, checkOut, { companyId, override });
     const deposit = b.deposit ? int(b, 'deposit', { min: 1 }) : 0;
     const depositMethod = deposit ? oneOf(b, 'deposit_method', PAYMENT_METHODS) : 'cash';
-    if (deposit > rate * nights) throw bad('Payment is more than the total for the stay');
+    if (deposit > quote.total) throw bad('Payment is more than the total for the stay');
     if (checkInNow && checkIn !== today()) throw bad('Only a stay starting today can be checked in now');
     if (checkInNow && Number.isNaN(roomId)) throw bad('Choose a room to check the guest into');
 
@@ -359,15 +367,16 @@ reservations.post(
       const guestId = upsertGuest(guest);
       const status = checkInNow ? 'checked_in' : 'confirmed';
       const { id } = run(
-        `INSERT INTO reservations (code, guest_id, room_type_id, room_id, check_in, check_out, nights, rate, total, adults, status, source, notes, created_by, checked_in_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        code('DH'), guestId, typeId, Number.isNaN(roomId) ? null : roomId, checkIn, checkOut, nights, rate, rate * nights, adults, status, source, notes || null, user.id,
-        checkInNow ? new Date().toISOString() : null,
+        `INSERT INTO reservations (code, guest_id, room_type_id, room_id, check_in, check_out, nights, rate, total, adults, status, source, notes, created_by, checked_in_at, company_id, bill_to_company, rate_note)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        code('DH'), guestId, typeId, Number.isNaN(roomId) ? null : roomId, checkIn, checkOut, quote.nights.length, quote.average, quote.total, adults, status, source, notes || null, user.id,
+        checkInNow ? new Date().toISOString() : null, companyId, billToCompany ? 1 : 0, quote.note,
       );
+      saveNights(id, quote.nights);
       if (checkInNow) run("UPDATE rooms SET status = 'occupied' WHERE id = ?", roomId);
       if (deposit) assertOpen(today());
       if (deposit) run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', id, deposit, depositMethod, today(), user.id);
-      audit(user.id, 'create', 'reservation', id, { status, rate, nights });
+      audit(user.id, 'create', 'reservation', id, { status, total: quote.total, nights: quote.nights.length, rate_note: quote.note ?? undefined });
       return { id };
     });
     res.status(201).json(result);
@@ -436,9 +445,22 @@ reservations.post(
       const t = today();
       if (t < r.check_out) {
         const out = t > r.check_in ? t : addDays(r.check_in, 1);
-        if (out < r.check_out) reprice(id, r.check_in, out, r.rate);
+        if (out < r.check_out) trimNights(id, out);
       }
-      const balance = balanceOf(id);
+      let balance = balanceOf(id);
+      // Corporate guests: the bill moves to the company's account instead of being paid at the desk.
+      const billing = get<{ bill_to_company: number; company_id: number | null }>('SELECT bill_to_company, company_id FROM reservations WHERE id = ?', id)!;
+      if (balance > 0 && billing.bill_to_company && billing.company_id) {
+        const c = get<{ name: string; credit_limit: number }>('SELECT name, credit_limit FROM companies WHERE id = ?', billing.company_id)!;
+        const owed = companyBalance(billing.company_id);
+        if (c.credit_limit && owed + balance > c.credit_limit && !(force && user.role === 'manager')) {
+          throw new HttpError(409, `${c.name} would go over its ₦${c.credit_limit.toLocaleString('en-NG')} credit limit (owes ₦${owed.toLocaleString('en-NG')}). A manager can override.`);
+        }
+        assertOpen(today());
+        run("INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?, 'company', ?, ?)", id, balance, today(), user.id);
+        audit(user.id, 'bill_to_company', 'reservation', id, { company: c.name, amount: balance });
+        balance = 0;
+      }
       if (balance > 0 && !(force && user.role === 'manager')) {
         throw new HttpError(409, `Outstanding balance of ₦${balance.toLocaleString('en-NG')} — record payment first`);
       }
@@ -469,7 +491,8 @@ reservations.post(
           throw new HttpError(409, 'No rooms of that type are free for the extra nights');
         }
       }
-      reprice(id, r.check_in, newOut, r.rate);
+      if (newOut > r.check_out) extendNights(r, newOut);
+      else trimNights(id, newOut);
       audit(user.id, 'change_dates', 'reservation', id, { from: r.check_out, to: newOut });
     });
     res.json({ ok: true });
@@ -647,3 +670,49 @@ reservations.get(
     });
   }),
 );
+
+// ---------- pricing quote (front desk) ----------
+
+/** What a stay would cost, night by night, before it is booked. */
+reservations.get(
+  '/quote',
+  desk,
+  h((req, res) => {
+    const q = { check_in: req.query.check_in, check_out: req.query.check_out };
+    const checkIn = date(q, 'check_in');
+    const checkOut = date(q, 'check_out');
+    validateStay(checkIn, checkOut, true);
+    const typeId = Number(req.query.room_type_id);
+    const companyId = req.query.company_id ? Number(req.query.company_id) : null;
+    res.json(priceStay(typeId, checkIn, checkOut, { companyId }));
+  }),
+);
+
+/** Put a stay on (or take it off) a company account. The agreed price is not changed. */
+reservations.post(
+  '/reservations/:id/company',
+  desk,
+  h((req, res) => {
+    const user = currentUser(req);
+    const id = Number(req.params.id);
+    const b = body(req);
+    const companyId = b.company_id ? int(b, 'company_id', { min: 1 }) : null;
+    tx(() => {
+      const r = load(id);
+      if (r.status === 'checked_out' || r.status === 'cancelled') throw new HttpError(409, 'This stay is closed');
+      if (companyId && !get('SELECT 1 FROM companies WHERE id = ? AND active = 1', companyId)) throw bad('That company account is not active');
+      run('UPDATE reservations SET company_id = ?, bill_to_company = ? WHERE id = ?', companyId, companyId && b.bill_to_company === true ? 1 : 0, id);
+      audit(user.id, 'set_company', 'reservation', id, { company_id: companyId, bill_to_company: b.bill_to_company === true });
+    });
+    res.json({ ok: true });
+  }),
+);
+
+/** What a company owes: everything billed to its account, less what it has paid. */
+export function companyBalance(companyId: number) {
+  return get<{ v: number }>(
+    `SELECT COALESCE((SELECT SUM(p.amount) FROM payments p JOIN reservations r ON r.id = p.reservation_id WHERE p.method = 'company' AND r.company_id = ?1), 0)
+          - COALESCE((SELECT SUM(amount) FROM company_payments WHERE company_id = ?1), 0) AS v`,
+    companyId,
+  )!.v;
+}

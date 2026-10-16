@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ROLES, ROLE_HELP, ROLE_LABELS, type Role } from '../../../../shared/constants';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/ui';
+import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDateTime, naira } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

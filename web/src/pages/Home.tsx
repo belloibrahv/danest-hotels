@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { FACILITY_LABELS, type Facility } from '../../../shared/constants';
 import { GymScene, LoungeScene, PoolScene, RoomScene } from '../components/illustrations';
-import { ErrorBox, Field, Icon, useSubmit } from '../components/ui';
+import { ErrorBox, Field, Icon, useSubmit } from '../components/kit';
 import { addDays, api, fmtDateLong, naira, nightsBetween, todayISO } from '../lib/api';
 import { sceneFor, time12, useHotel, type PublicHotel } from '../lib/hotel';
 

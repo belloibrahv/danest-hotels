@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { PAYMENT_LABELS, PAYMENT_METHODS, type PaymentMethod, type RoomStatus, type TicketPriority, type TicketStatus } from '../../../../shared/constants';
 import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
+import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate, fmtDateTime, naira, todayISO } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

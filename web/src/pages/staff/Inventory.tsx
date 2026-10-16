@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
+import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/kit';
 import { api, naira, pct } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

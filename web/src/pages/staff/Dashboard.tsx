@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useDesk } from '../../components/Desk';
 import { DailyBars, HBars } from '../../components/charts';
-import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
+import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/kit';
 import { fmtDate, fmtDateLong, naira, nairaShort, pct } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { SetupChecklist } from './Settings';

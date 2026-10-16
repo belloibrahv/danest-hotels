@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReservationStatus, RoomStatus } from '../../../../shared/constants';
 import { useDesk } from '../../components/Desk';
-import { Card, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/ui';
+import { Card, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/kit';
 import { addDays, fmtDate, naira, nightsBetween, todayISO } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 

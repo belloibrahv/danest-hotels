@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { SOURCE_LABELS } from '../../../../shared/constants';
 import { useDesk } from '../../components/Desk';
 import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/ui';
+import { Card, EmptyState, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/kit';
 import { fmtDate, naira } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { balanceOf, type Reservation } from './ReservationDrawer';

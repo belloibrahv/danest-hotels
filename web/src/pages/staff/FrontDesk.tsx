@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { RoomStatus } from '../../../../shared/constants';
-import { Card, ErrorBox, Icon, Loading, Modal, PageHead, useSubmit, useToast } from '../../components/ui';
+import { Card, ErrorBox, Icon, Loading, Modal, PageHead, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { useDesk } from '../../components/Desk';

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { DateRange, useRange } from '../../components/DateRange';
-import { Card, Empty, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, useSubmit, useToast } from '../../components/ui';
+import { Card, Empty, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate, naira, todayISO } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import type { Product } from './Pos';

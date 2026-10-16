@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PAYMENT_LABELS, PAYMENT_METHODS, SOURCE_LABELS, type PaymentMethod, type ReservationSource, type ReservationStatus } from '../../../../shared/constants';
 import { useDesk } from '../../components/Desk';
-import { Drawer, ErrorBox, Field, Icon, Loading, StatusBadge, useSubmit, useToast } from '../../components/ui';
+import { Drawer, ErrorBox, Field, Icon, Loading, StatusBadge, useSubmit, useToast } from '../../components/kit';
 import { addDays, api, fmtDate, fmtDateLong, fmtDateTime, naira, nightsBetween, todayISO } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { loadSession } from './auth.ts';
 import { HttpError } from './lib.ts';
 import { closeDay } from './routes/closeday.ts';
+import { commercial } from './routes/commercial.ts';
+import { recordSuccess, validSignature } from './paystack.ts';
 import { config } from './routes/config.ts';
 import { finance } from './routes/finance.ts';
 import { housekeeping } from './routes/housekeeping.ts';
@@ -49,6 +51,23 @@ export function createApp() {
     next();
   });
 
+  // Paystack calls this server-to-server. It carries no browser cookies or CSRF header, so it is
+  // authenticated by its HMAC signature instead, over the exact bytes received.
+  app.post('/api/paystack/webhook', express.raw({ type: '*/*', limit: '100kb' }), (req: Request, res: Response) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!validSignature(raw, req.get('x-paystack-signature'))) return res.sendStatus(401);
+    try {
+      const event = JSON.parse(raw.toString('utf8')) as { event?: string; data?: { reference?: string; amount?: number } };
+      if (event.event === 'charge.success' && event.data?.reference && typeof event.data.amount === 'number') {
+        recordSuccess(event.data.reference, event.data.amount, event.data);
+      }
+    } catch (err) {
+      // Unknown references and duplicates are acknowledged so Paystack stops retrying; real errors are logged.
+      if (!(err instanceof HttpError)) console.error('paystack webhook', err);
+    }
+    res.sendStatus(200);
+  });
+
   const api = express.Router();
   api.use(express.json({ limit: '50kb' }));
   api.use((req, res, next) => {
@@ -70,6 +89,7 @@ export function createApp() {
   api.use(config);
   api.use(housekeeping);
   api.use(closeDay);
+  api.use(commercial);
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use('/api', api);
 

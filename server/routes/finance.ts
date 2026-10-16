@@ -119,9 +119,11 @@ type Money = Record<string, number>;
 export function roomNightsByDay(from: string, to: string) {
   return all<{ date: string; nights: number; revenue: number }>(
     `WITH RECURSIVE d(day) AS (SELECT ? UNION ALL SELECT date(day, '+1 day') FROM d WHERE day < ?)
-     SELECT d.day AS date, COUNT(r.id) AS nights, COALESCE(SUM(r.rate), 0) AS revenue
-       FROM d LEFT JOIN reservations r
-         ON r.check_in <= d.day AND r.check_out > d.day AND r.status IN ('checked_in','checked_out') AND d.day <= ?
+     SELECT d.day AS date, COUNT(n.reservation_id) AS nights, COALESCE(SUM(n.rate), 0) AS revenue
+       FROM d LEFT JOIN (
+         SELECT rn.reservation_id, rn.date, rn.rate FROM reservation_nights rn
+           JOIN reservations r ON r.id = rn.reservation_id AND r.status IN ('checked_in','checked_out')
+       ) n ON n.date = d.day AND d.day <= ?
       GROUP BY d.day ORDER BY d.day`,
     from,
     to,
@@ -149,13 +151,14 @@ export function kpis(from: string, to: string) {
 /** Money actually received, by how it was paid. Room-charged sales aren't cash until the folio is settled. */
 export function collections(from: string, to: string) {
   const rows = all<{ source: string; method: string; v: number }>(
-    `SELECT 'Room folios' AS source, method, SUM(amount) v FROM payments WHERE date BETWEEN ?1 AND ?2 GROUP BY method
+    `SELECT 'Room bills' AS source, method, SUM(amount) v FROM payments WHERE method <> 'company' AND date BETWEEN ?1 AND ?2 GROUP BY method
      UNION ALL SELECT 'Bar & shop', method, SUM(total) FROM sales WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method
-     UNION ALL SELECT 'Gym, pool & lounge', method, SUM(amount) FROM facility_income WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method`,
+     UNION ALL SELECT 'Gym, pool & lounge', method, SUM(amount) FROM facility_income WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method
+     UNION ALL SELECT 'Company accounts', method, SUM(amount) FROM company_payments WHERE date BETWEEN ?1 AND ?2 GROUP BY method`,
     from,
     to,
   );
-  const byMethod = { cash: 0, transfer: 0, pos: 0 } as Money;
+  const byMethod = { cash: 0, transfer: 0, pos: 0, online: 0 } as Money;
   const bySource: Money = {};
   for (const r of rows) {
     byMethod[r.method] = (byMethod[r.method] ?? 0) + r.v;

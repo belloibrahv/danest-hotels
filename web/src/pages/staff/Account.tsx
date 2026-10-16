@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ROLE_LABELS } from '../../../../shared/constants';
-import { Card, ErrorBox, Field, Icon, Loading, PageHead, useSubmit, useToast } from '../../components/ui';
+import { Card, ErrorBox, Field, Icon, Loading, PageHead, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDateTime } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { RESERVATION_STATUS_LABELS, type ReservationStatus, type Role } from '../../../shared/constants';
 import { api, fmtDate } from '../lib/api';
 import { useDesk } from './Desk';
-import { Icon } from './ui';
+import { Icon } from './kit';
 
 export interface PaletteNav {
   to: string;

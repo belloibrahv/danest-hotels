@@ -1,6 +1,6 @@
 import { DailyBars } from '../../components/charts';
 import { DateRange, useRange } from '../../components/DateRange';
-import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
+import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/kit';
 import { fmtDate, fmtDateLong, naira, nairaShort, pct } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 import { KpiStrip, type Kpis, type PnL } from './Dashboard';

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RoomScene } from '../components/illustrations';
-import { ErrorBox, Field, Icon, useSubmit } from '../components/ui';
+import { ErrorBox, Field, Icon, useSubmit } from '../components/kit';
 import { api, fmtDateLong, naira } from '../lib/api';
 import { SiteFooter, SiteNav } from './Home';
 import { sceneFor, time12, useHotel } from '../lib/hotel';

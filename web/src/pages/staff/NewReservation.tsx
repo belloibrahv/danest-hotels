@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ID_LABELS, ID_TYPES, PAYMENT_LABELS, PAYMENT_METHODS, SOURCE_LABELS, type PaymentMethod, type ReservationSource } from '../../../../shared/constants';
-import { ErrorBox, Field, Modal, useSubmit, useToast } from '../../components/ui';
+import { ErrorBox, Field, Modal, useSubmit, useToast } from '../../components/kit';
 import { addDays, api, naira, nightsBetween, todayISO } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

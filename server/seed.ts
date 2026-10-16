@@ -112,7 +112,7 @@ export function seed() {
   const pwHash = hashPassword(DEMO_PASSWORD);
 
   tx(() => {
-    for (const t of ['day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'users', 'rate_limits']) {
+    for (const t of ['messages', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
@@ -343,6 +343,13 @@ export function seed() {
     }
 
     for (const p of products) run('UPDATE products SET stock = ?, avg_cost = ? WHERE id = ?', p.stock, p.avg, p.id);
+
+    // Every stay is priced per night (demo stays were sold at a flat rate).
+    db.exec(`INSERT INTO reservation_nights (reservation_id, date, rate)
+      WITH RECURSIVE n(id, d, out, rate) AS (
+        SELECT id, check_in, check_out, rate FROM reservations
+        UNION ALL SELECT id, date(d, '+1 day'), out, rate FROM n WHERE date(d, '+1 day') < out)
+      SELECT id, d, rate FROM n`);
 
     // Departed guests settled their bar and pool charges at check-out.
     for (const x of stays.filter((x) => x.status === 'checked_out')) {

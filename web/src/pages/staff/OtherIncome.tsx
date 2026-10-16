@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
 import { DateRange, useRange } from '../../components/DateRange';
-import { Card, Empty, ErrorBox, Field, Icon, Loading, PageHead, Stat, useSubmit, useToast } from '../../components/ui';
+import { Card, Empty, ErrorBox, Field, Icon, Loading, PageHead, Stat, useSubmit, useToast } from '../../components/kit';
 import { api, fmtDate, naira } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';

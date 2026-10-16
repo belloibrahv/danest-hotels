@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { PoolScene } from '../components/illustrations';
-import { ErrorBox, Field, Icon, Loading, useSubmit } from '../components/ui';
+import { ErrorBox, Field, Icon, Loading, useSubmit } from '../components/kit';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 

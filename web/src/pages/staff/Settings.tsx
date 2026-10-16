@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FACILITIES, FACILITY_LABELS, type Facility, type HotelSettings } from '../../../../shared/constants';
 import { RoomScene } from '../../components/illustrations';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/ui';
+import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/kit';
 import { api, naira } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 

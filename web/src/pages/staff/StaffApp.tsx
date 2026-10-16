@@ -3,7 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ROLE_LABELS, type Role } from '../../../../shared/constants';
 import { CommandPalette } from '../../components/CommandPalette';
 import { DeskProvider, useDesk } from '../../components/Desk';
-import { Icon, Loading } from '../../components/ui';
+import { Icon, Loading } from '../../components/kit';
 import { useAuth, homeFor } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
 import Account from './Account';

@@ -3,6 +3,9 @@ import { all, audit, get, run, tx } from '../db.ts';
 import { rateLimit } from '../auth.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, code, date, h, int, isDate, str, today, addDays } from '../lib.ts';
 import { availabilityByType, validateStay } from './reservations.ts';
+import { priceStay, saveNights } from '../pricing.ts';
+import { paystackEnabled } from '../paystack.ts';
+import { getSettings } from '../settings.ts';
 
 /** Unauthenticated endpoints used by the guest website. Read-mostly; the one write is rate limited. */
 export const publicApi = Router();
@@ -13,11 +16,17 @@ publicApi.get(
     const checkIn = isDate(req.query.check_in) ? req.query.check_in : today();
     const checkOut = isDate(req.query.check_out) && req.query.check_out > checkIn ? req.query.check_out : addDays(checkIn, 1);
     const free = availabilityByType(checkIn, checkOut);
-    const types = all<{ id: number; amenities: string }>(
+    const types = all<{ id: number; amenities: string; rate: number }>(
       `SELECT id, name, slug, rate, capacity, description, amenities FROM room_types t
         WHERE t.active = 1 AND EXISTS (SELECT 1 FROM rooms r WHERE r.room_type_id = t.id AND r.active = 1) ORDER BY rate`,
     );
-    res.json(types.map((t) => ({ ...t, amenities: JSON.parse(t.amenities), available: free.get(t.id) ?? 0 })));
+    // Price the exact stay, so weekend and seasonal rates show before the guest books.
+    res.json(
+      types.map((t) => {
+        const q = priceStay(t.id, checkIn, checkOut);
+        return { ...t, amenities: JSON.parse(t.amenities), available: free.get(t.id) ?? 0, total: q.total, average: q.average, rate_note: q.note };
+      }),
+    );
   }),
 );
 
@@ -52,13 +61,16 @@ publicApi.post(
       const guestId = existing?.id ?? run('INSERT INTO guests (name, phone, email) VALUES (?,?,?)', name, phone, email || null).id;
       const bookedAs = existing && existing.name.toLowerCase() !== name.toLowerCase() ? `Booked online as “${name}”. ` : '';
       const ref = code('DH');
+      const quote = priceStay(typeId, checkIn, checkOut);
       const { id } = run(
-        `INSERT INTO reservations (code, guest_id, room_type_id, check_in, check_out, nights, rate, total, adults, status, source, notes)
-         VALUES (?,?,?,?,?,?,?,?,?,'pending','website',?)`,
-        ref, guestId, typeId, checkIn, checkOut, nights, type.rate, type.rate * nights, adults, (bookedAs + notes).trim() || null,
+        `INSERT INTO reservations (code, guest_id, room_type_id, check_in, check_out, nights, rate, total, adults, status, source, notes, rate_note)
+         VALUES (?,?,?,?,?,?,?,?,?,'pending','website',?,?)`,
+        ref, guestId, typeId, checkIn, checkOut, nights, quote.average, quote.total, adults, (bookedAs + notes).trim() || null, quote.note,
       );
+      saveNights(id, quote.nights);
       audit(null, 'booking_request', 'reservation', id);
-      return { code: ref, nights, total: type.rate * nights, room_type: type.name };
+      const s = getSettings();
+      return { code: ref, nights, total: quote.total, room_type: type.name, deposit: paystackEnabled() && s.deposit_percent ? Math.ceil((quote.total * s.deposit_percent) / 100) : 0 };
     });
     res.status(201).json(result);
   }),
