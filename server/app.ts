@@ -69,7 +69,8 @@ export function createApp() {
 
   const dist = resolve(import.meta.dirname, '../dist');
   if (existsSync(dist)) {
-    app.use(express.static(dist, { index: false, maxAge: '1h' }));
+    // redirect: false — /brand is a page as well as the folder that holds the brand images.
+    app.use(express.static(dist, { index: false, redirect: false, maxAge: '1h' }));
     app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
   }
 
