@@ -117,7 +117,7 @@ team.get(
   }),
 );
 
-const anyStaff = allow('manager', 'frontdesk', 'bar');
+const anyStaff = allow(...ROLES);
 
 /** Sensitive account changes re-check the password, so an unattended unlocked screen isn't enough. */
 function requirePassword(req: Request, field = 'password') {

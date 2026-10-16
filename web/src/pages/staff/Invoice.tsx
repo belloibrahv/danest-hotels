@@ -6,7 +6,7 @@ import { ErrorNote, LoadingRows } from '@/components/app/page';
 import { Button } from '@/components/ui/button';
 import { fmtDate, fmtDateLong, naira, todayISO } from '@/lib/api';
 import { useApi } from '@/lib/hooks';
-import { balanceOf, type Reservation } from './desk/ReservationSheet';
+import { balanceOf, chargedOf, type Reservation } from './desk/ReservationSheet';
 
 /** Print-ready folio. Opens in its own tab; the browser's print gives a clean A4 or PDF. */
 export default function Invoice() {
@@ -19,7 +19,12 @@ export default function Invoice() {
   if (error) return <div className="p-8"><ErrorNote error={error} /></div>;
   if (!r || !hotel) return <LoadingRows />;
   const balance = balanceOf(r);
-  const settled = r.status === 'checked_out' && balance <= 0;
+  const settled = (r.status === 'checked_out' || r.status === 'cancelled') && balance <= 0;
+  // A cancelled booking is billed only for the deposit the hotel kept, never for nights it didn't use.
+  const lines =
+    r.status === 'cancelled'
+      ? r.retained > 0 ? [{ date: r.cancelled_on ?? r.check_in, kind: 'fee', description: 'Cancellation fee (deposit kept)', amount: r.retained }] : []
+      : r.folio ?? [];
 
   return (
     <div className="min-h-svh bg-muted/50 px-4 py-8 print:bg-white print:p-0">
@@ -63,7 +68,7 @@ export default function Invoice() {
             </tr>
           </thead>
           <tbody>
-            {r.folio?.map((l, i) => (
+            {lines.map((l, i) => (
               <tr key={i} className="border-b border-dashed">
                 <td className="py-2 pr-4 whitespace-nowrap text-muted-foreground tabular-nums">{fmtDate(l.date)}</td>
                 <td className="py-2">{l.kind === 'room' ? `Accommodation — ${l.description}` : l.description}</td>
@@ -73,13 +78,20 @@ export default function Invoice() {
             <tr className="font-semibold">
               <td />
               <td className="py-2.5">Total charges</td>
-              <td className="py-2.5 text-right tabular-nums">{naira(r.total + r.charges)}</td>
+              <td className="py-2.5 text-right tabular-nums">{naira(chargedOf(r))}</td>
             </tr>
             {r.payments?.map((p) => (
               <tr key={p.id} className="text-success">
                 <td className="py-1.5 pr-4 tabular-nums">{fmtDate(p.date)}</td>
                 <td className="py-1.5">{ALL_PAYMENT_LABELS[p.method] ?? p.method}</td>
                 <td className="py-1.5 text-right tabular-nums">−{naira(p.amount)}</td>
+              </tr>
+            ))}
+            {r.refunds?.map((x) => (
+              <tr key={`r${x.id}`}>
+                <td className="py-1.5 pr-4 text-muted-foreground tabular-nums">{fmtDate(x.date)}</td>
+                <td className="py-1.5">Refunded ({ALL_PAYMENT_LABELS[x.method] ?? x.method})</td>
+                <td className="py-1.5 text-right tabular-nums">+{naira(x.amount)}</td>
               </tr>
             ))}
             <tr className="border-t-2 border-foreground text-base font-semibold">

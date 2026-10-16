@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { all, audit, get, run, tx } from '../db.ts';
 import { rateLimit } from '../auth.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, code, date, h, int, isDate, str, today, addDays } from '../lib.ts';
-import { availabilityByType, validateStay } from './reservations.ts';
+import { PAID_SQL, availabilityByType, validateStay } from './reservations.ts';
 import { priceStay, saveNights } from '../pricing.ts';
 import { paystackEnabled } from '../paystack.ts';
 import { getSettings } from '../settings.ts';
@@ -89,7 +89,7 @@ publicApi.post(
     const phone = str(b, 'phone', { max: 20, pattern: PHONE_RE }).replace(/\D/g, '');
     const r = get<{ code: string; status: string; check_in: string; check_out: string; nights: number; total: number; room_type: string; guest_phone: string; guest_name: string; paid: number }>(
       `SELECT r.code, r.status, r.check_in, r.check_out, r.nights, r.total, t.name AS room_type, g.phone AS guest_phone, g.name AS guest_name,
-              COALESCE((SELECT SUM(amount) FROM payments p WHERE p.reservation_id = r.id), 0) AS paid
+              ${PAID_SQL} AS paid
          FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id WHERE r.code = ?`,
       ref,
     );

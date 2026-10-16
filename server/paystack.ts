@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { audit, get, run, tx } from './db.ts';
 import { lastClosedDate } from './days.ts';
 import { HttpError, addDays, today } from './lib.ts';
+import { availabilityByType } from './routes/reservations.ts';
 
 /**
  * Paystack (hosted checkout). The browser never sees the secret key: the server starts a
@@ -66,9 +67,15 @@ export function recordSuccess(reference: string, amountKobo: number, raw: unknow
     }
     run("UPDATE online_payments SET status = 'success', gateway_response = ?, verified_at = datetime('now') WHERE reference = ?", JSON.stringify(raw).slice(0, 2000), reference);
     run("INSERT INTO payments (reservation_id, amount, method, reference, date) VALUES (?,?, 'online', ?, ?)", op.reservation_id, op.amount, reference, bookingDate());
-    // A paid deposit turns a website request into a confirmed booking.
-    run("UPDATE reservations SET status = 'confirmed' WHERE id = ? AND status = 'pending'", op.reservation_id);
-    audit(null, 'online_payment', 'reservation', op.reservation_id, { amount: op.amount, reference });
+    // A paid deposit turns a website request into a confirmed booking, if a room is still free.
+    // Otherwise the money is kept on the request and the front desk decides (it stays pending).
+    const r = get<{ status: string; room_type_id: number; check_in: string; check_out: string }>(
+      'SELECT status, room_type_id, check_in, check_out FROM reservations WHERE id = ?',
+      op.reservation_id,
+    )!;
+    const roomFree = (availabilityByType(r.check_in, r.check_out, op.reservation_id).get(r.room_type_id) ?? 0) > 0;
+    if (r.status === 'pending' && roomFree) run("UPDATE reservations SET status = 'confirmed' WHERE id = ?", op.reservation_id);
+    audit(null, 'online_payment', 'reservation', op.reservation_id, { amount: op.amount, reference, ...(r.status === 'pending' && !roomFree && { left_pending: 'no room free' }) });
     return { reservationId: op.reservation_id, amount: op.amount, duplicate: false };
   });
   if (!out) throw new HttpError(409, 'Payment amount does not match');

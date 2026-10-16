@@ -204,3 +204,61 @@ describe('closing the day', () => {
     ok(await call('/expenses', { cookie: owner, body: { category: 'diesel', description: 'Diesel', amount: 1000, method: 'cash', date: today() } }), 201);
   });
 });
+
+describe('the night audit keeps room nights honest', () => {
+  const t = today();
+  const y = addDays(t, -1);
+  const stay = (code: string, roomNumber: string, checkIn: string, checkOut: string, status: string) => {
+    const type = get<{ id: number; rate: number }>('SELECT id, rate FROM room_types LIMIT 1')!;
+    const room = get<{ id: number }>('SELECT id FROM rooms WHERE number = ?', roomNumber)!.id;
+    run("UPDATE rooms SET status = ? WHERE id = ?", status === 'checked_in' ? 'occupied' : 'available', room);
+    run("INSERT OR IGNORE INTO guests (name, phone) VALUES ('Audit Guest', '08077770000')");
+    const g = get<{ id: number }>("SELECT id FROM guests WHERE phone = '08077770000'")!.id;
+    const id = run(
+      "INSERT INTO reservations (code, guest_id, room_type_id, room_id, check_in, check_out, nights, rate, total, status, source) VALUES (?,?,?,?,?,?,1,0,0,?,'phone')",
+      code, g, type.id, room, checkIn, checkOut, status,
+    ).id;
+    for (let d = checkIn; d < checkOut; d = addDays(d, 1)) run('INSERT INTO reservation_nights (reservation_id, date, rate) VALUES (?,?,?)', id, d, type.rate);
+    run('UPDATE reservations SET nights = (SELECT COUNT(*) FROM reservation_nights WHERE reservation_id = ?1), total = (SELECT SUM(rate) FROM reservation_nights WHERE reservation_id = ?1) WHERE id = ?1', id);
+    return { id, rate: type.rate };
+  };
+  const nights = (id: number) => get<{ nights: number; total: number; check_in: string; check_out: string }>('SELECT nights, total, check_in, check_out FROM reservations WHERE id = ?', id)!;
+
+  test('a day cannot close while a guest is past departure or has not arrived', async () => {
+    const late = stay('DH-AUDIT-NS', '101', y, addDays(t, 2), 'confirmed');
+    const over = stay('DH-AUDIT-OV', '201', addDays(t, -2), y, 'checked_in');
+    const view = (await call(`/close-day?date=${t}`, { cookie: owner })).json;
+    assert.equal(view.checks.no_shows.length, 1);
+    assert.equal(view.checks.overdue.length, 1);
+    const refused = await call('/close-day', { cookie: owner, body: { date: t, counted_cash: 0, notes: 'test' } });
+    ok(refused, 409);
+    assert.match(refused.json.error, /1 not arrived, 1 past departure/);
+    assert.equal(get<{ n: number }>('SELECT COUNT(*) n FROM day_closures WHERE date = ?', t)!.n, 0);
+
+    // The guest who arrived a day late pays from tonight, not for the night they missed.
+    ok(await call(`/reservations/${late.id}/check-in`, { cookie: desk, body: {} }));
+    assert.deepEqual({ ...nights(late.id) }, { nights: 2, total: 2 * late.rate, check_in: t, check_out: addDays(t, 2) });
+    assert.equal(get<{ n: number }>('SELECT COUNT(*) n FROM reservation_nights WHERE reservation_id = ? AND date < ?', late.id, t)!.n, 0);
+
+    // The guest who stayed on without extending pays for the extra night at check-out.
+    const refusedOut = await call(`/reservations/${over.id}/check-out`, { cookie: desk, body: {} });
+    ok(refusedOut, 409);
+    assert.match(refusedOut.json.error, /Outstanding balance of ₦/);
+    assert.deepEqual({ ...nights(over.id) }, { nights: 2, total: 2 * over.rate, check_in: addDays(t, -2), check_out: t }, 'the overstay was billed even though check-out was refused');
+  });
+
+  test('extra nights are never posted on a day that is already closed', async () => {
+    const overdue = get<{ id: number }>("SELECT id FROM reservations WHERE code = 'DH-AUDIT-OV'")!.id;
+    // Charging the night at the refused check-out moved departure to today, so the guest is no longer overdue.
+    assert.equal(nights(overdue).check_out, t);
+    // Simulate books closed before this guard existed: yesterday locked while a guest overstayed from it.
+    run("UPDATE reservations SET check_out = ? WHERE id = ?", y, overdue);
+    run('DELETE FROM reservation_nights WHERE reservation_id = ? AND date >= ?', overdue, y);
+    const ownerId = get<{ id: number }>("SELECT id FROM users WHERE username = 'owner'")!.id;
+    run("INSERT INTO day_closures (date, closed_by, expected_cash, counted_cash, expected_transfer, expected_pos, variance, summary) VALUES (?,?,0,0,0,0,0,'{}')", y, ownerId);
+    ok(await call(`/reservations/${overdue}/check-out`, { cookie: desk, body: {} }), 409);
+    ok(await call(`/reservations/${overdue}/extend`, { cookie: desk, body: { check_out: addDays(t, 1) } }), 409);
+    assert.equal(get<{ n: number }>('SELECT COUNT(*) n FROM reservation_nights WHERE reservation_id = ? AND date >= ?', overdue, y)!.n, 0, 'nothing was posted on the closed day');
+    run('DELETE FROM day_closures WHERE date = ?', y);
+  });
+});

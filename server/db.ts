@@ -446,6 +446,25 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_messages_res ON messages(reservation_id);
   `,
+
+  // 4 — refunds, and deposits kept when a booking is cancelled or a guest doesn't arrive
+  `
+  CREATE TABLE refunds (
+    id INTEGER PRIMARY KEY,
+    reservation_id INTEGER NOT NULL REFERENCES reservations(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos')),
+    reason TEXT NOT NULL,
+    date TEXT NOT NULL,
+    refunded_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_refunds_date ON refunds(date);
+  CREATE INDEX idx_refunds_res ON refunds(reservation_id);
+
+  ALTER TABLE reservations ADD COLUMN cancelled_on TEXT;
+  ALTER TABLE reservations ADD COLUMN retained INTEGER NOT NULL DEFAULT 0 CHECK (retained >= 0);
+  `,
 ];
 
 {

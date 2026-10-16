@@ -2,6 +2,7 @@ import type { MessageTemplate } from '../shared/constants.ts';
 import { get, run } from './db.ts';
 import { HttpError } from './lib.ts';
 import { getSettings } from './settings.ts';
+import { CHARGES_SQL, PAID_SQL } from './routes/reservations.ts';
 
 /**
  * Guest messages. With an SMS provider configured (Termii, the common choice in Nigeria)
@@ -32,8 +33,8 @@ export function compose(template: MessageTemplate, reservationId: number) {
     room_type: string; paid: number; charges: number;
   }>(
     `SELECT r.code, r.check_in, r.check_out, r.nights, r.total, g.name AS guest_name, g.phone AS guest_phone, t.name AS room_type,
-            COALESCE((SELECT SUM(amount) FROM payments p WHERE p.reservation_id = r.id), 0) AS paid,
-            COALESCE((SELECT SUM(total) FROM sales s WHERE s.reservation_id = r.id), 0) + COALESCE((SELECT SUM(amount) FROM facility_income f WHERE f.reservation_id = r.id), 0) AS charges
+            ${PAID_SQL} AS paid,
+            ${CHARGES_SQL} AS charges
        FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id WHERE r.id = ?`,
     reservationId,
   );

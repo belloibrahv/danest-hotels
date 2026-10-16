@@ -222,14 +222,16 @@ config.put(
   h((req, res) => {
     const id = Number(req.params.id);
     const b = body(req);
-    const room = get<{ id: number }>('SELECT id FROM rooms WHERE id = ?', id);
+    const room = get<{ id: number; room_type_id: number }>('SELECT id, room_type_id FROM rooms WHERE id = ?', id);
     if (!room) throw new HttpError(404, 'Room not found');
     const typeId = int(b, 'room_type_id', { min: 1 });
+    if (!get('SELECT 1 FROM room_types WHERE id = ?', typeId)) throw bad('Choose a room type');
     const floor = int(b, 'floor', { min: 0, max: 50 });
     const active = b.active === false ? 0 : 1;
-    if (!active && get("SELECT 1 FROM reservations WHERE room_id = ? AND status IN ('confirmed','checked_in')", id)) {
-      throw new HttpError(409, 'This room has a guest or an upcoming booking. Move them first.');
-    }
+    // Guests booked into this room were sold its current type, so the room keeps it until they are moved.
+    const booked = get("SELECT 1 FROM reservations WHERE room_id = ? AND status IN ('confirmed','checked_in')", id);
+    if (booked && !active) throw new HttpError(409, 'This room has a guest or an upcoming booking. Move them first.');
+    if (booked && typeId !== room.room_type_id) throw new HttpError(409, 'This room has a guest or an upcoming booking of its current type. Move them first.');
     run('UPDATE rooms SET room_type_id = ?, floor = ?, active = ? WHERE id = ?', typeId, floor, active, id);
     audit(currentUser(req).id, 'update', 'room', id, { room_type_id: typeId, active });
     res.json({ ok: true });

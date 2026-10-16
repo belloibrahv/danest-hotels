@@ -277,7 +277,7 @@ commercial.post(
     const phone = str(b, 'phone', { max: 20, pattern: PHONE_RE }).replace(/\D/g, '');
     const email = str(b, 'email', { max: 254, pattern: EMAIL_RE });
     const r = get<{ id: number; status: string; total: number; phone: string; paid: number }>(
-      `SELECT r.id, r.status, r.total, g.phone, COALESCE((SELECT SUM(amount) FROM payments p WHERE p.reservation_id = r.id), 0) AS paid
+      `SELECT r.id, r.status, r.total, g.phone, ${PAID_SQL} AS paid
          FROM reservations r JOIN guests g ON g.id = r.guest_id WHERE r.code = ?`,
       ref,
     );
@@ -298,7 +298,7 @@ commercial.get(
     const reference = typeof req.query.reference === 'string' ? req.query.reference.slice(0, 60) : '';
     if (!/^[A-Z0-9-]+$/i.test(reference)) throw bad('Missing payment reference');
     const out = await verifyPayment(reference);
-    const r = 'reservationId' in out ? get<{ code: string }>('SELECT code FROM reservations WHERE id = ?', out.reservationId) : undefined;
-    res.json({ status: out.status, amount: 'amount' in out ? out.amount : undefined, code: r?.code });
+    const r = 'reservationId' in out ? get<{ code: string; status: string }>('SELECT code, status FROM reservations WHERE id = ?', out.reservationId) : undefined;
+    res.json({ status: out.status, amount: 'amount' in out ? out.amount : undefined, code: r?.code, booking_status: r?.status });
   }),
 );

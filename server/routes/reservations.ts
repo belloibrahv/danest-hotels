@@ -2,14 +2,15 @@ import { Router } from 'express';
 import {
   ID_TYPES,
   PAYMENT_METHODS,
+  type PaymentMethod,
   RESERVATION_SOURCES,
   RESERVATION_STATUSES,
   ROOM_STATUSES,
   type ReservationStatus,
 } from '../../shared/constants.ts';
-import { allow, currentUser } from '../auth.ts';
+import { allow, currentUser, type SessionUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
-import { priceStay, saveNights, trimNights } from '../pricing.ts';
+import { priceStay, saveNights, syncTotals, trimNights } from '../pricing.ts';
 import { logRoom } from './housekeeping.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, code, date, daysBetween, h, int, isDate, oneOf, str, today } from '../lib.ts';
@@ -80,10 +81,15 @@ function assertRoomFree(roomId: number, checkIn: string, checkOut: string, reser
 /** Bar and facility sales posted to the room. */
 export const CHARGES_SQL = `(COALESCE((SELECT SUM(s.total) FROM sales s WHERE s.reservation_id = r.id), 0)
   + COALESCE((SELECT SUM(f.amount) FROM facility_income f WHERE f.reservation_id = r.id), 0))`;
-export const PAID_SQL = `COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.reservation_id = r.id), 0)`;
+/** Money received against a stay, net of anything given back. */
+export const PAID_SQL = `(COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.reservation_id = r.id), 0)
+  - COALESCE((SELECT SUM(rf.amount) FROM refunds rf WHERE rf.reservation_id = r.id), 0))`;
+
+/** What a stay owes in total. A cancelled booking only owes the deposit the hotel kept. */
+const OWED_SQL = `CASE WHEN r.status = 'cancelled' THEN r.retained ELSE r.total + ${CHARGES_SQL} END`;
 
 export const balanceOf = (id: number) =>
-  get<{ balance: number }>(`SELECT r.total + ${CHARGES_SQL} - ${PAID_SQL} AS balance FROM reservations r WHERE r.id = ?`, id)?.balance ?? 0;
+  get<{ balance: number }>(`SELECT ${OWED_SQL} - ${PAID_SQL} AS balance FROM reservations r WHERE r.id = ?`, id)?.balance ?? 0;
 
 type ResRow = { id: number; status: ReservationStatus; room_id: number | null; room_type_id: number; check_in: string; check_out: string; code: string; total: number; rate: number; nights: number };
 
@@ -96,11 +102,24 @@ function load(id: number): Stay {
 
 type Stay = ResRow & { company_id: number | null; rate_note: string | null };
 
-/** Add nights to the end of a stay, priced as they would be sold today (same company, same manager rate). */
-function extendNights(r: Stay, newOut: string) {
+/** Nights added to the end of a stay, priced as they would be sold today (same company, same manager rate). */
+function quoteExtra(r: Stay, newOut: string) {
   const override = r.rate_note === 'Manager rate' ? r.rate : null;
-  const quote = priceStay(r.room_type_id, r.check_out, newOut, { companyId: r.company_id, override });
-  saveNights(r.id, quote.nights);
+  // A company account closed during the stay no longer gives its discount.
+  const companyId = r.company_id && get('SELECT 1 FROM companies WHERE id = ? AND active = 1', r.company_id) ? r.company_id : null;
+  return priceStay(r.room_type_id, r.check_out, newOut, { companyId, override });
+}
+
+function extendNights(r: Stay, newOut: string) {
+  saveNights(r.id, quoteExtra(r, newOut).nights);
+}
+
+/** Nights an in-house guest has stayed past departure without an extension. They are charged at check-out. */
+function overstay(r: Stay) {
+  const t = today();
+  if (r.status !== 'checked_in' || t <= r.check_out) return null;
+  const q = quoteExtra(r, t);
+  return { since: r.check_out, nights: q.nights.length, amount: q.total };
 }
 
 const LIST_SQL = `
@@ -108,9 +127,10 @@ const LIST_SQL = `
          r.checked_in_at, r.checked_out_at,
          g.id AS guest_id, g.name AS guest_name, g.phone AS guest_phone, g.email AS guest_email, g.vip AS guest_vip,
          t.name AS room_type, rm.number AS room_number, r.room_id, r.room_type_id,
-         r.company_id, r.bill_to_company, r.rate_note, co.name AS company_name,
+         r.company_id, r.bill_to_company, r.rate_note, co.name AS company_name, r.retained, r.cancelled_on,
          ${CHARGES_SQL} AS charges,
-         ${PAID_SQL} AS paid
+         ${PAID_SQL} AS paid,
+         ${OWED_SQL} - ${PAID_SQL} AS balance
     FROM reservations r
     JOIN guests g ON g.id = r.guest_id
     JOIN room_types t ON t.id = r.room_type_id
@@ -252,7 +272,7 @@ reservations.get(
     if (view === 'departures') where.push(`r.check_out <= ? AND r.status = 'checked_in'`), params.push(t);
     if (view === 'inhouse') where.push(`r.status = 'checked_in'`);
     if (view === 'upcoming') where.push(`r.check_in >= ? AND r.status IN ('confirmed','pending')`), params.push(t);
-    if (view === 'balances') where.push(`r.status IN ('checked_in','checked_out') AND r.total + ${CHARGES_SQL} - ${PAID_SQL} > 0`);
+    if (view === 'balances') where.push(`r.status IN ('checked_in','checked_out') AND r.total + ${CHARGES_SQL} - ${PAID_SQL} <> 0`);
     if (typeof req.query.guest_id === 'string' && /^\d+$/.test(req.query.guest_id)) where.push('g.id = ?'), params.push(Number(req.query.guest_id));
     const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
     if (q) {
@@ -276,6 +296,11 @@ reservations.get(
          FROM payments p LEFT JOIN users u ON u.id = p.received_by WHERE p.reservation_id = ? ORDER BY p.id`,
       id,
     );
+    const refunds = all(
+      `SELECT rf.id, rf.amount, rf.method, rf.date, rf.reason, u.name AS refunded_by
+         FROM refunds rf LEFT JOIN users u ON u.id = rf.refunded_by WHERE rf.reservation_id = ? ORDER BY rf.id`,
+      id,
+    );
     // The folio, line by line, the way a guest sees it on their bill.
     const lines: { date: string; kind: string; description: string; amount: number }[] = [];
     for (const n of all<{ date: string; rate: number }>('SELECT date, rate FROM reservation_nights WHERE reservation_id = ? ORDER BY date', id)) {
@@ -293,7 +318,7 @@ reservations.get(
       lines.push({ date: f.date, kind: f.facility, description: f.item, amount: f.amount });
     }
     lines.sort((a, b) => a.date.localeCompare(b.date));
-    res.json({ ...r, payments, folio: lines });
+    res.json({ ...r, payments, refunds, folio: lines, overstay: overstay(load(id)) });
   }),
 );
 
@@ -423,9 +448,16 @@ reservations.post(
       const room = assertRoomFree(roomId, today(), r.check_out, id);
       if (room.room_type_id !== r.room_type_id) throw bad('That room is not of the booked type');
       if (room.status !== 'available') throw new HttpError(409, `Room ${room.number} is not ready (${room.status})`);
+      // Arriving late: the stay starts tonight, so the guest isn't billed for nights they never slept.
+      const t = today();
+      if (r.check_in < t) {
+        run('DELETE FROM reservation_nights WHERE reservation_id = ? AND date < ?', id, t);
+        run('UPDATE reservations SET check_in = ? WHERE id = ?', t, id);
+        syncTotals(id);
+      }
       run("UPDATE reservations SET status = 'checked_in', room_id = ?, checked_in_at = ? WHERE id = ?", roomId, new Date().toISOString(), id);
       run("UPDATE rooms SET status = 'occupied' WHERE id = ?", roomId);
-      audit(user.id, 'check_in', 'reservation', id, { room: room.number });
+      audit(user.id, 'check_in', 'reservation', id, r.check_in < t ? { room: room.number, late_from: r.check_in } : { room: room.number });
     });
     res.json({ ok: true });
   }),
@@ -438,6 +470,16 @@ reservations.post(
     const user = currentUser(req);
     const id = Number(req.params.id);
     const force = body(req).force === true;
+    // Stayed past departure without an extension: the extra nights are charged like an extension.
+    // Committed on its own so the bill shows them even if the check-out below is refused for payment.
+    tx(() => {
+      const r = load(id);
+      const t = today();
+      if (r.status !== 'checked_in' || t <= r.check_out) return;
+      assertOpen(r.check_out);
+      extendNights(r, t);
+      audit(user.id, 'late_departure', 'reservation', id, { from: r.check_out, to: t });
+    });
     tx(() => {
       const r = load(id);
       if (r.status !== 'checked_in') throw new HttpError(409, 'Guest is not checked in');
@@ -491,6 +533,8 @@ reservations.post(
           throw new HttpError(409, 'No rooms of that type are free for the extra nights');
         }
       }
+      // A guest already past departure is extended from that date, so those nights must fall on open days.
+      if (newOut > r.check_out && r.status === 'checked_in') assertOpen(r.check_out);
       if (newOut > r.check_out) extendNights(r, newOut);
       else trimNights(id, newOut);
       audit(user.id, 'change_dates', 'reservation', id, { from: r.check_out, to: newOut });
@@ -526,6 +570,28 @@ reservations.post(
   }),
 );
 
+/** An optional `refund` (naira) and `refund_method` on a cancellation or no-show. */
+function refundField(b: Record<string, unknown>) {
+  const amount = b.refund === undefined || b.refund === '' || b.refund === 0 ? 0 : int(b, 'refund', { min: 1 });
+  return { amount, method: amount ? oneOf(b, 'refund_method', PAYMENT_METHODS) : 'cash' };
+}
+
+/**
+ * Settle the money on a booking that will never be a stay. Whatever was paid is either given
+ * back (a manager decision) or kept as a cancellation fee, earned on the day it is decided.
+ */
+function settleDeposit(id: number, user: SessionUser, refund: { amount: number; method: PaymentMethod }, reason: string) {
+  const paid = get<{ v: number }>(`SELECT ${PAID_SQL} AS v FROM reservations r WHERE r.id = ?`, id)!.v;
+  if (refund.amount > paid) throw bad(paid ? `Only ₦${paid.toLocaleString('en-NG')} was paid on this booking` : 'Nothing was paid on this booking');
+  if (refund.amount && user.role !== 'manager') throw new HttpError(403, 'Only a manager can give money back');
+  if (paid) assertOpen(today());
+  if (refund.amount) {
+    run('INSERT INTO refunds (reservation_id, amount, method, reason, date, refunded_by) VALUES (?,?,?,?,?,?)', id, refund.amount, refund.method, reason, today(), user.id);
+  }
+  run("UPDATE reservations SET status = 'cancelled', cancelled_on = ?, retained = ? WHERE id = ?", today(), paid - refund.amount, id);
+  return { refunded: refund.amount, retained: paid - refund.amount };
+}
+
 /** A guest who never arrived. Kept as a cancellation, marked so reports can count no-shows. */
 reservations.post(
   '/reservations/:id/no-show',
@@ -533,14 +599,17 @@ reservations.post(
   h((req, res) => {
     const user = currentUser(req);
     const id = Number(req.params.id);
-    tx(() => {
+    const refund = refundField(body(req));
+    const out = tx(() => {
       const r = load(id);
       if (r.status !== 'pending' && r.status !== 'confirmed') throw new HttpError(409, 'Only bookings that have not arrived can be marked as no-show');
       if (r.check_in > today()) throw new HttpError(409, 'The guest is not due yet');
-      run("UPDATE reservations SET status = 'cancelled', notes = '[No-show] ' || COALESCE(notes, '') WHERE id = ?", id);
-      audit(user.id, 'no_show', 'reservation', id);
+      const money = settleDeposit(id, user, refund, 'No-show');
+      run("UPDATE reservations SET notes = '[No-show] ' || COALESCE(notes, '') WHERE id = ?", id);
+      audit(user.id, 'no_show', 'reservation', id, money.refunded || money.retained ? money : undefined);
+      return money;
     });
-    res.json({ ok: true });
+    res.json({ ok: true, ...out });
   }),
 );
 
@@ -550,14 +619,46 @@ reservations.post(
   h((req, res) => {
     const user = currentUser(req);
     const id = Number(req.params.id);
-    const reason = str(body(req), 'reason', { max: 300, optional: true });
-    tx(() => {
+    const b = body(req);
+    const reason = str(b, 'reason', { max: 300, optional: true });
+    const refund = refundField(b);
+    const out = tx(() => {
       const r = load(id);
       if (r.status !== 'pending' && r.status !== 'confirmed') throw new HttpError(409, 'Only upcoming reservations can be cancelled');
-      run("UPDATE reservations SET status = 'cancelled' WHERE id = ?", id);
-      audit(user.id, 'cancel', 'reservation', id, reason ? { reason } : undefined);
+      const money = settleDeposit(id, user, refund, reason || 'Booking cancelled');
+      audit(user.id, 'cancel', 'reservation', id, { reason: reason || undefined, ...(money.refunded || money.retained ? money : {}) });
+      return money;
     });
-    res.json({ ok: true });
+    res.json({ ok: true, ...out });
+  }),
+);
+
+/**
+ * Give back money a stay has overpaid (e.g. after leaving early, or an online payment that arrived after
+ * the booking was cancelled). Manager only, and always with a reason. The kept deposit is never touched.
+ */
+reservations.post(
+  '/reservations/:id/refunds',
+  allow('manager'),
+  h((req, res) => {
+    const user = currentUser(req);
+    const id = Number(req.params.id);
+    const b = body(req);
+    const amount = int(b, 'amount', { min: 1 });
+    const method = oneOf(b, 'method', PAYMENT_METHODS);
+    const reason = str(b, 'reason', { min: 3, max: 300 });
+    tx(() => {
+      const r = load(id);
+      if (r.status === 'pending' || r.status === 'confirmed') {
+        throw new HttpError(409, 'Deposits on upcoming bookings are settled when the booking is cancelled');
+      }
+      assertOpen(today());
+      const credit = -balanceOf(id);
+      if (amount > credit) throw bad(credit > 0 ? `The guest is owed ₦${credit.toLocaleString('en-NG')}` : 'The guest is not owed any money');
+      const { id: refundId } = run('INSERT INTO refunds (reservation_id, amount, method, reason, date, refunded_by) VALUES (?,?,?,?,?,?)', id, amount, method, reason, today(), user.id);
+      audit(user.id, 'refund', 'reservation', id, { amount, method, reason, refund_id: refundId });
+    });
+    res.status(201).json({ ok: true });
   }),
 );
 
@@ -574,7 +675,8 @@ reservations.post(
       const r = load(id);
       if (r.status === 'cancelled') throw new HttpError(409, 'Reservation is cancelled');
       assertOpen(today());
-      const balance = balanceOf(id);
+      // A guest past departure can pay for the extra nights before they are posted at check-out.
+      const balance = balanceOf(id) + (overstay(r)?.amount ?? 0);
       if (amount > balance) throw bad(`Amount is more than the outstanding balance (₦${balance.toLocaleString('en-NG')})`);
       const p = run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', id, amount, method, today(), user.id);
       audit(user.id, 'payment', 'reservation', id, { amount, method, payment_id: p.id });

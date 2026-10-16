@@ -112,7 +112,7 @@ export function seed() {
   const pwHash = hashPassword(DEMO_PASSWORD);
 
   tx(() => {
-    for (const t of ['messages', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
+    for (const t of ['messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 

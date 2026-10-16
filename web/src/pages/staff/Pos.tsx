@@ -2,7 +2,7 @@ import { Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { CHARGE_LABELS, CHARGE_METHODS, type ChargeMethod } from '../../../../shared/constants';
-import { Field, SelectField } from '@/components/app/form';
+import { Field, SelectField, VoidButton } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { api, fmtTime, naira } from '@/lib/api';
+import { can, useAuth } from '@/lib/auth';
 import { useApi, useSubmit } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +35,7 @@ interface TillDay {
 
 /** A tap-first till: big targets, live stock, room charges for in-house guests. */
 export default function Pos() {
+  const { user } = useAuth();
   const products = useApi<Product[]>('/products');
   const till = useApi<TillDay>('/sales');
   const [cat, setCat] = useState('all');
@@ -204,6 +206,7 @@ export default function Pos() {
                 <TableHead>Items</TableHead>
                 <TableHead>Paid by</TableHead>
                 <TableHead className="pr-5 text-right">Amount</TableHead>
+                {can(user, 'manager') && <TableHead className="w-0 pr-3" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -218,6 +221,19 @@ export default function Pos() {
                   <TableCell className="pr-5 text-right font-medium">
                     <Money value={s.total} />
                   </TableCell>
+                  {can(user, 'manager') && (
+                    <TableCell className="pr-3 text-right">
+                      <VoidButton
+                        label={`receipt ${s.receipt_no}`}
+                        onVoid={async (reason) => {
+                          await api(`/sales/${s.id}/void`, { body: { reason } });
+                          toast.success(`${s.receipt_no} voided`, { description: 'Items are back in stock.' });
+                          products.reload();
+                          till.reload();
+                        }}
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

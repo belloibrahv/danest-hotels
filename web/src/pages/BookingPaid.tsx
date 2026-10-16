@@ -10,11 +10,11 @@ import { SitePage } from './site';
 export default function BookingPaid() {
   const [params] = useSearchParams();
   const reference = params.get('reference') ?? params.get('trxref') ?? '';
-  const [state, setState] = useState<{ status: string; amount?: number; code?: string } | { error: string } | null>(null);
+  const [state, setState] = useState<{ status: string; amount?: number; code?: string; booking_status?: string } | { error: string } | null>(null);
 
   useEffect(() => {
     if (!reference) return setState({ error: 'Missing payment reference.' });
-    api<{ status: string; amount?: number; code?: string }>(`/public/payments/verify?reference=${encodeURIComponent(reference)}`).then(setState, (e) => setState({ error: e.message }));
+    api<{ status: string; amount?: number; code?: string; booking_status?: string }>(`/public/payments/verify?reference=${encodeURIComponent(reference)}`).then(setState, (e) => setState({ error: e.message }));
   }, [reference]);
 
   const ok = state && 'status' in state && state.status === 'success';
@@ -33,7 +33,10 @@ export default function BookingPaid() {
                 <CheckCircle2 className="mx-auto size-12 text-success" />
                 <h1 className="mt-4 text-xl font-semibold">Payment received</h1>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {naira((state as { amount: number }).amount)} paid. Your booking <span className="font-mono font-medium text-foreground">{(state as { code: string }).code}</span> is confirmed.
+                  {naira((state as { amount: number }).amount)} paid. Your booking <span className="font-mono font-medium text-foreground">{(state as { code: string }).code}</span>{' '}
+                  {(state as { booking_status?: string }).booking_status === 'pending'
+                    ? 'is waiting for the front desk to confirm a room. We will contact you shortly.'
+                    : 'is confirmed.'}
                 </p>
                 <Button className="mt-6" asChild><Link to={`/booking?code=${(state as { code: string }).code}`}>View booking</Link></Button>
               </>

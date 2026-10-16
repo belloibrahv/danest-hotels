@@ -9,9 +9,9 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { fmtDate } from '@/lib/api';
+import { fmtDate, naira } from '@/lib/api';
 import { useApi } from '@/lib/hooks';
-import { balanceOf, type Reservation } from './desk/ReservationSheet';
+import { balanceOf, chargedOf, type Reservation } from './desk/ReservationSheet';
 import { useDesk } from './desk/Desk';
 
 type View = 'upcoming' | 'pending' | 'arrivals' | 'inhouse' | 'departures' | 'balances' | 'all';
@@ -21,7 +21,7 @@ const VIEWS: { value: View; label: string }[] = [
   { value: 'arrivals', label: 'Arriving' },
   { value: 'inhouse', label: 'In house' },
   { value: 'departures', label: 'Leaving' },
-  { value: 'balances', label: 'Owing' },
+  { value: 'balances', label: 'Balances' },
   { value: 'all', label: 'All' },
 ];
 
@@ -120,7 +120,7 @@ export default function Reservations() {
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground lg:table-cell">{SOURCE_LABELS[r.source]}</TableCell>
                     <TableCell className="text-right">
-                      <Money value={r.total + r.charges} />
+                      <Money value={chargedOf(r)} />
                     </TableCell>
                     <TableCell className="pr-5 text-right">
                       {r.status === 'cancelled' ? (
@@ -128,7 +128,7 @@ export default function Reservations() {
                       ) : bal > 0 ? (
                         <Money value={bal} className="font-medium text-destructive" />
                       ) : bal < 0 ? (
-                        <StatusPill tone="warning">Credit {Math.abs(bal).toLocaleString('en-NG')}</StatusPill>
+                        <StatusPill tone="warning">Owed {naira(-bal)}</StatusPill>
                       ) : (
                         <StatusPill tone="success">Paid</StatusPill>
                       )}

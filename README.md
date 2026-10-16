@@ -19,14 +19,15 @@ One system that runs the hotel the way the owner described it:
 | Area | Capability |
 |---|---|
 | **Front office** | Tape chart (rooms × days, click a night to book), room board, reservations, walk-ins, early check-out (re-priced to the nights used), extend or shorten a stay, room moves, ⌘K command palette, `N` for a new booking |
-| **Guest folios** | Bar and gym/pool charges post to the guest's room. One itemised bill. Settle at check-out. Printable invoice/receipt (A4, save as PDF) |
+| **Guest folios** | Bar and gym/pool charges post to the guest's room. One itemised bill. Settle at check-out. Printable invoice/receipt (A4, save as PDF). A late arrival is billed from the night they arrive; a guest who stays past departure is billed for the extra nights at check-out |
+| **Refunds & corrections** | Cancelling or no-showing a paid booking keeps the deposit as a cancellation fee (its own revenue line), or a manager gives some or all of it back. Managers refund overpaid stays (e.g. after leaving early) and void till or gym/pool/lounge mistakes on open days; stock goes back on the shelf. Every refund and void needs a reason and is kept in the activity log |
 | **Guests (CRM)** | One profile per phone number. Stay history, lifetime spend, favourite room, VIP flag, preference notes, ID capture (NIN, passport, driver's licence, voter's card). Returning guests are recognised as you type their number |
 | **Owner reporting** | Room revenue earned night by night (night-audit style). **Occupancy, ADR, RevPAR**, each compared with the previous period. 14-day on-the-books forecast. Cash collected by method. P&L export for Excel |
 | **Security** | Two-step sign-in (authenticator app, single-use recovery codes, replay protection). Secrets encrypted at rest. Device and session management. Re-authentication for sensitive changes |
 | **Guest website** | Live availability, illustrated rooms and facilities, "a day at Danest" story, FAQ, and **Manage booking** (`/booking`) for guests to check their reservation |
 | **Rates & seasons** | Every night is priced on its own. Rules raise or lower the base rate for weekends, seasons and promotions (by percentage, by a naira amount, or a fixed price), and a 14-night price grid shows the result. Past nights never change |
 | **Company accounts** | Negotiated discounts, credit limits, and "bill to company" at check-out, which moves the balance to the company's account (city ledger). Statements with a running balance; payments on account |
-| **Online deposits** | Paystack hosted checkout from the website and Manage booking. Payments are verified on the server, webhooks are signature-checked, each payment is recorded exactly once, and a paid deposit confirms the booking |
+| **Online deposits** | Paystack hosted checkout from the website and Manage booking. Payments are verified on the server, webhooks are signature-checked, each payment is recorded exactly once, and a paid deposit confirms the booking if a room is still free (otherwise the money is kept on the request for the front desk) |
 | **Guest messages** | Confirmation, reminder, balance and thank-you messages from each reservation. Sent by SMS when Termii is connected, otherwise opened ready to send on WhatsApp. Every message is logged |
 | **Interface** | shadcn/ui on Tailwind CSS v4 (Radix), Geist type, light and dark mode, collapsible sidebar, ⌘K command palette, side sheets for reservations, guests and companies, recharts charts with a palette checked for colour-blindness. Design language at `/brand` |
 
@@ -46,7 +47,7 @@ The live system **starts empty**: no sample bookings, no sample sales, and no in
    - gym, pool and lounge prices
    - staff accounts, each with their real name and role
    - two-step sign-in for every manager
-4. Each night, the manager uses **Close the day**: clear no-shows and late departures, count the cash drawer, and lock the day.
+4. Each night, the manager uses **Close the day**: clear no-shows and late departures (the day can't close until they are sorted), count the cash drawer, and lock the day.
 
 ## Run it locally
 
@@ -69,7 +70,7 @@ Production-style (one process serves the API and the built site on :4000):
 npm run build && npm start
 ```
 
-Other scripts: `npm test` (47 end-to-end API tests, including a complete real-hotel run from an empty database and Paystack and SMS flows against mock servers) and `npm run typecheck`.
+Other scripts: `npm test` (64 end-to-end API tests, including a complete real-hotel run from an empty database and Paystack and SMS flows against mock servers) and `npm run typecheck`.
 
 Environment variables:
 
@@ -165,7 +166,7 @@ Room types, rates and the 20-room layout; facility prices; the drinks list; 24-h
 
 - **Housekeeping** (`/staff/housekeeping`): checked-out rooms appear as "to clean". A supervisor assigns them, and housekeepers mark them clean on their phones.
 - **Repairs**: anyone can report a problem in a room or around the hotel. A repair can take a room out of order, and that room drops out of availability straight away. When it's fixed, the room goes back to housekeeping and any cost is booked as a repairs expense.
-- **Close the day** (`/staff/close-day`): a review of no-shows, guests past their departure date, unpaid bills and dirty rooms. The manager then counts the cash against what the system expects, and any difference must be explained. A closed day is **locked**: no payment, sale, purchase or expense can be dated on or before it. Days close in order, and reopening the latest one needs a reason that's logged.
+- **Close the day** (`/staff/close-day`): a review of no-shows, guests past their departure date, unpaid bills and dirty rooms. Every booking must be sorted first (checked in, marked no-show, extended or checked out), so no room night is ever posted to a locked day. The manager then counts the cash against what the system expects (cash refunds come out of it), and any difference must be explained. A closed day is **locked**: no payment, sale, purchase or expense can be dated on or before it. Days close in order, and reopening the latest one needs a reason that's logged.
 - **Settings**: hotel details, room types and rates, rooms, and the facility price list. The website, booking engine, invoices and front desk all read from these settings.
 
 ## Roadmap — next

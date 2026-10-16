@@ -73,6 +73,7 @@ export const STREAMS = [
   { key: 'rooms', label: 'Room reservations', group: 'core' },
   { key: 'drinks', label: 'Drinks', group: 'core' },
   { key: 'confectionery', label: 'Confectionery', group: 'core' },
+  { key: 'cancellations', label: 'Cancellation & no-show fees', group: 'core' },
   { key: 'gym', label: 'Gym', group: 'other' },
   { key: 'pool', label: 'Swimming pool', group: 'other' },
   { key: 'lounge', label: 'Lounge & bar', group: 'other' },

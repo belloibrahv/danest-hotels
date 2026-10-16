@@ -217,6 +217,25 @@ describe('Paystack deposits', () => {
     paystack.amountOverride = null;
     assert.equal(get<{ status: string }>('SELECT status FROM online_payments WHERE reference = ?', third.reference)!.status, 'failed');
   });
+
+  test('a deposit paid after the hotel filled up is kept, but does not overbook', async () => {
+    const ci = addDays(today(), 60);
+    const req = await call('/public/booking-requests', { body: { name: 'Late Payer', phone: '08040000002', email: 'late@example.com', check_in: ci, check_out: addDays(ci, 1), room_type_id: typeId, adults: 1 } });
+    ok(req, 201);
+    // The front desk sells all three rooms while the request is still waiting.
+    for (const n of [1, 2, 3]) {
+      ok(await call('/reservations', { cookie: owner, body: { guest: { name: `Walk In ${n}`, phone: `0805000000${n}` }, check_in: ci, check_out: addDays(ci, 1), room_type_id: typeId, adults: 1, source: 'phone' } }), 201);
+    }
+    const start = (await call('/public/payments/start', { body: { code: req.json.code, phone: '08040000002', email: 'late@example.com' } })).json;
+    const v = await call(`/public/payments/verify?reference=${start.reference}`);
+    ok(v);
+    assert.equal(v.json.status, 'success');
+    assert.equal(v.json.booking_status, 'pending', 'the guest is told the desk still has to confirm');
+    const r = get<{ id: number; status: string }>('SELECT id, status FROM reservations WHERE code = ?', req.json.code)!;
+    assert.equal(r.status, 'pending');
+    assert.equal(get<{ n: number }>("SELECT COUNT(*) n FROM reservations WHERE status = 'confirmed' AND check_in = ?", ci)!.n, 3, 'never more confirmed stays than rooms');
+    assert.equal(get<{ v: number }>("SELECT SUM(amount) v FROM payments WHERE method = 'online' AND reservation_id = ?", r.id)!.v, start.amount, 'the money is still on record');
+  });
 });
 
 describe('guest messages', () => {

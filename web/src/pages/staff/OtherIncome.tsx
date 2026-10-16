@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
 import { DateRangePicker, useRange } from '@/components/app/date-range';
-import { DateInput, Field, MoneyInput, SelectField } from '@/components/app/form';
+import { DateInput, Field, MoneyInput, SelectField, VoidButton } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
 import { Button } from '@/components/ui/button';
@@ -83,6 +83,7 @@ export default function OtherIncome() {
                     <TableHead>Customer</TableHead>
                     <TableHead>Paid by</TableHead>
                     <TableHead className="pr-5 text-right">Amount</TableHead>
+                    {can(user, 'manager') && <TableHead className="w-0 pr-3" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -98,6 +99,18 @@ export default function OtherIncome() {
                       <TableCell className="pr-5 text-right font-medium">
                         <Money value={r.amount} />
                       </TableCell>
+                      {can(user, 'manager') && (
+                        <TableCell className="pr-3 text-right">
+                          <VoidButton
+                            label={`${r.item} (${naira(r.amount)})`}
+                            onVoid={async (reason) => {
+                              await api(`/facility-income/${r.id}/void`, { body: { reason } });
+                              toast.success('Entry voided');
+                              reload();
+                            }}
+                          />
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

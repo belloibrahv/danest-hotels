@@ -19,6 +19,7 @@ import { DateInput, Field, MoneyInput, SelectField, useConfirm } from '@/compone
 import { ErrorNote, KeyValue, LoadingRows, Money } from '@/components/app/page';
 import { ReservationStatusPill, StatusPill, VipBadge } from '@/components/app/status';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
@@ -59,11 +60,20 @@ export interface Reservation {
   created_at: string;
   checked_in_at: string | null;
   checked_out_at: string | null;
+  /** What is still owed (negative: owed to the guest). A cancelled booking owes only the deposit kept. */
+  balance: number;
+  retained: number;
+  cancelled_on: string | null;
   payments?: { id: number; amount: number; method: string; date: string; received_by: string | null }[];
+  refunds?: { id: number; amount: number; method: string; date: string; reason: string; refunded_by: string | null }[];
   folio?: { date: string; kind: string; description: string; amount: number }[];
+  /** A guest still in house after their departure date: nights that will be charged at check-out. */
+  overstay?: { since: string; nights: number; amount: number } | null;
 }
 
-export const balanceOf = (r: Pick<Reservation, 'total' | 'charges' | 'paid'>) => r.total + r.charges - r.paid;
+export const balanceOf = (r: Pick<Reservation, 'balance'>) => r.balance;
+/** Everything charged to the stay: room nights and extras, or only the kept deposit once cancelled. */
+export const chargedOf = (r: Pick<Reservation, 'status' | 'retained' | 'total' | 'charges'>) => (r.status === 'cancelled' ? r.retained : r.total + r.charges);
 const KIND: Record<string, string> = { room: 'Room', bar: 'Bar', gym: 'Gym', pool: 'Pool', lounge: 'Lounge' };
 const iso = (s: string) => s.replace('T', ' ').replace(/\.\d+Z$/, '').replace(/Z$/, '');
 
@@ -84,7 +94,7 @@ function Body({ id }: { id: number }) {
   const [roomId, setRoomId] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('transfer');
-  const [panel, setPanel] = useState<'dates' | 'move' | 'company' | null>(null);
+  const [panel, setPanel] = useState<'dates' | 'move' | 'company' | 'cancel' | 'no-show' | null>(null);
   const [newOut, setNewOut] = useState('');
   const [moveTo, setMoveTo] = useState('');
   const { busy, error: actErr, setError, submit } = useSubmit();
@@ -104,8 +114,9 @@ function Body({ id }: { id: number }) {
     setRoomId(r.room_id ? String(r.room_id) : '');
     setNewOut(r.check_out);
     const used = r.status === 'checked_in' && t < r.check_out ? Math.max(1, nightsBetween(r.check_in, t)) : r.nights;
-    const owedNow = Math.min(balanceOf(r), Math.round((r.total / r.nights) * used) + r.charges - r.paid);
-    setAmount(String(Math.max(0, owedNow) || Math.max(0, balanceOf(r)) || ''));
+    const extra = r.overstay?.amount ?? 0;
+    const owedNow = Math.min(balanceOf(r) + extra, Math.round((r.total / r.nights) * used) + r.charges - r.paid + extra);
+    setAmount(String(Math.max(0, owedNow) || Math.max(0, balanceOf(r) + extra) || ''));
   }, [r, t]);
   useEffect(() => setError(null), [tab, setError]);
 
@@ -117,11 +128,22 @@ function Body({ id }: { id: number }) {
   const balance = balanceOf(r);
   const upcoming = r.status === 'pending' || r.status === 'confirmed';
   const live = upcoming || r.status === 'checked_in';
-  // Leaving early pays only the nights used.
+  // Leaving early pays only the nights used; staying past departure adds the extra nights.
+  const extra = r.overstay?.amount ?? 0;
   const usedNights = r.status === 'checked_in' && t < r.check_out ? Math.max(1, nightsBetween(r.check_in, t)) : r.nights;
   const usedTotal = r.folio ? r.folio.filter((l) => l.kind === 'room').slice(0, usedNights).reduce((a, l) => a + l.amount, 0) : r.total;
-  const leaveBalance = usedTotal + r.charges - r.paid;
+  const leaveBalance = usedTotal + r.charges - r.paid + extra;
   const billToCompany = !!r.bill_to_company && !!r.company_id;
+  const isManager = can(user, 'manager');
+  // A booking that was paid for needs a decision about the money, not just a yes/no.
+  const closeBooking = async (kind: 'cancel' | 'no-show') => {
+    if (r.paid > 0) return setPanel(panel === kind ? null : kind);
+    const ok =
+      kind === 'cancel'
+        ? await confirm({ title: 'Cancel this reservation?', confirmLabel: 'Cancel reservation', destructive: true })
+        : await confirm({ title: `Mark ${r.guest_name} as a no-show?`, description: 'The booking is cancelled and marked as a no-show.', confirmLabel: 'Mark no-show' });
+    if (ok) act(kind, {}, kind === 'cancel' ? 'Reservation cancelled' : 'Marked as no-show');
+  };
 
   return (
     <>
@@ -145,7 +167,7 @@ function Body({ id }: { id: number }) {
         </SheetDescription>
         <div className="mt-1 grid grid-cols-3 overflow-hidden rounded-lg border text-sm">
           {[
-            ['Charges', naira(r.total + r.charges), ''],
+            [r.status === 'cancelled' ? 'Kept' : 'Charges', naira(chargedOf(r)), ''],
             ['Paid', naira(r.paid), ''],
             [balance < 0 ? 'Owed to guest' : 'Balance', balance === 0 ? 'Settled' : naira(Math.abs(balance)), balance > 0 ? 'text-destructive' : 'text-success'],
           ].map(([k, v, c], i) => (
@@ -199,6 +221,14 @@ function Body({ id }: { id: number }) {
           </dl>
           {r.rate_note && <p className="text-xs text-muted-foreground">Priced with: {r.rate_note}</p>}
           {r.notes && <p className="rounded-md border bg-muted/40 p-3 text-sm">“{r.notes}”</p>}
+          <Overstay r={r} />
+          {r.status === 'cancelled' && r.cancelled_on && (r.retained > 0 || !!r.refunds?.length) && (
+            <p className="rounded-md border bg-muted/40 p-3 text-sm">
+              Cancelled on {fmtDateLong(r.cancelled_on)}.{' '}
+              {r.retained > 0 && <>{naira(r.retained)} kept as a cancellation fee. </>}
+              {!!r.refunds?.length && <>{naira(r.refunds.reduce((a, x) => a + x.amount, 0))} given back.</>}
+            </p>
+          )}
 
           {upcoming && (
             <div className="space-y-3 rounded-lg border p-4">
@@ -240,23 +270,12 @@ function Body({ id }: { id: number }) {
               </Button>
               <span className="flex-1" />
               {upcoming && r.check_in <= t && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={async () => (await confirm({ title: `Mark ${r.guest_name} as a no-show?`, description: 'The booking is cancelled and marked as a no-show.', confirmLabel: 'Mark no-show' })) && act('no-show', {}, 'Marked as no-show')}
-                >
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => closeBooking('no-show')}>
                   No-show
                 </Button>
               )}
               {upcoming && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  disabled={busy}
-                  onClick={async () => (await confirm({ title: 'Cancel this reservation?', confirmLabel: 'Cancel reservation', destructive: true })) && act('cancel', {}, 'Reservation cancelled')}
-                >
+                <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={busy} onClick={() => closeBooking('cancel')}>
                   Cancel
                 </Button>
               )}
@@ -285,6 +304,15 @@ function Body({ id }: { id: number }) {
             </div>
           )}
           {panel === 'company' && <CompanyPanel r={r} busy={busy} onSave={(b) => act('company', b, 'Company billing updated')} />}
+          {(panel === 'cancel' || panel === 'no-show') && (
+            <SettleDeposit
+              kind={panel}
+              paid={r.paid}
+              manager={isManager}
+              busy={busy}
+              onSubmit={(b) => act(panel, b, panel === 'cancel' ? 'Reservation cancelled' : 'Marked as no-show')}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="bill" className="space-y-5 px-5 pb-8">
@@ -301,6 +329,16 @@ function Body({ id }: { id: number }) {
                     <TableCell className="text-right text-sm tabular-nums">{naira(l.amount)}</TableCell>
                   </TableRow>
                 ))}
+                {r.overstay && (
+                  <TableRow className="text-warning">
+                    <TableCell className="text-xs tabular-nums">{fmtDate(r.overstay.since)}</TableCell>
+                    <TableCell className="text-sm whitespace-normal">
+                      <span className="mr-2 inline-block w-12 text-[10px] font-semibold tracking-wider uppercase">Room</span>
+                      {r.overstay.nights} night{r.overstay.nights > 1 ? 's' : ''} past departure · added at check-out
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{naira(r.overstay.amount)}</TableCell>
+                  </TableRow>
+                )}
                 {r.payments?.map((p) => (
                   <TableRow key={`p${p.id}`} className="text-success">
                     <TableCell className="text-xs tabular-nums">{fmtDate(p.date)}</TableCell>
@@ -311,18 +349,36 @@ function Body({ id }: { id: number }) {
                     <TableCell className="text-right text-sm tabular-nums">−{naira(p.amount)}</TableCell>
                   </TableRow>
                 ))}
+                {r.refunds?.map((x) => (
+                  <TableRow key={`r${x.id}`}>
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtDate(x.date)}</TableCell>
+                    <TableCell className="text-sm whitespace-normal">
+                      Refund · {PAYMENT_LABELS[x.method as PaymentMethod] ?? x.method}
+                      <span className="text-muted-foreground"> · {x.reason}{x.refunded_by ? ` · ${x.refunded_by}` : ''}</span>
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">+{naira(x.amount)}</TableCell>
+                  </TableRow>
+                ))}
+                {r.status === 'cancelled' && (
+                  <TableRow>
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">{r.cancelled_on ? fmtDate(r.cancelled_on) : ''}</TableCell>
+                    <TableCell className="text-sm">Booking cancelled · deposit kept</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{naira(r.retained)}</TableCell>
+                  </TableRow>
+                )}
               </TableBody>
               <TableFooter>
                 <TableRow>
                   <TableCell />
-                  <TableCell className="font-semibold">{balance < 0 ? 'Owed to guest' : 'Balance due'}</TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">{naira(Math.abs(balance))}</TableCell>
+                  <TableCell className="font-semibold">{balance + extra < 0 ? 'Owed to guest' : 'Balance due'}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">{naira(Math.abs(balance + extra))}</TableCell>
                 </TableRow>
               </TableFooter>
             </Table>
           </div>
+          {r.status === 'cancelled' && !!r.folio?.length && <p className="-mt-3 text-xs text-muted-foreground">The room nights above were not charged: the booking was cancelled.</p>}
 
-          {r.status !== 'cancelled' && balance > 0 && !billToCompany && (
+          {r.status !== 'cancelled' && balance + extra > 0 && !billToCompany && (
             <div className="flex flex-wrap items-end gap-3 rounded-lg border p-4">
               <Field label="Take payment" className="w-40">
                 <MoneyInput value={amount} onChange={setAmount} />
@@ -335,7 +391,14 @@ function Body({ id }: { id: number }) {
               </Button>
             </div>
           )}
-          {billToCompany && balance > 0 && <p className="rounded-md border border-info/20 bg-info-soft p-3 text-sm text-info">At check-out, the balance moves to {r.company_name}'s account.</p>}
+          {billToCompany && balance + extra > 0 && <p className="rounded-md border border-info/20 bg-info-soft p-3 text-sm text-info">At check-out, the balance moves to {r.company_name}'s account.</p>}
+          {!upcoming && balance < 0 && (
+            isManager ? (
+              <RefundForm owed={-balance} busy={busy} onSubmit={(b) => act('refunds', b, `${naira(b.amount)} given back`)} />
+            ) : (
+              <p className="rounded-md border p-3 text-sm text-muted-foreground">The guest is owed {naira(-balance)}. Ask a manager to give it back.</p>
+            )
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" asChild>
@@ -375,6 +438,98 @@ function Body({ id }: { id: number }) {
         </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+function Overstay({ r }: { r: Reservation }) {
+  if (!r.overstay) return null;
+  const n = r.overstay.nights;
+  return (
+    <p className="rounded-md border border-warning/30 bg-warning-soft p-3 text-sm">
+      <b>Past departure.</b> The guest was due out on {fmtDateLong(r.overstay.since)}. {n} extra night{n > 1 ? 's' : ''} ({naira(r.overstay.amount)}) {n > 1 ? 'are' : 'is'} added at check-out. Extend the stay if they are staying on.
+    </p>
+  );
+}
+
+/** Cancelling or no-showing a booking that was paid for: keep the money as a fee, or (manager) give some back. */
+function SettleDeposit({ kind, paid, manager, busy, onSubmit }: { kind: 'cancel' | 'no-show'; paid: number; manager: boolean; busy: boolean; onSubmit: (b: Record<string, unknown>) => void }) {
+  const [refund, setRefund] = useState('');
+  const [method, setMethod] = useState<PaymentMethod>('transfer');
+  const [reason, setReason] = useState('');
+  const back = Number(refund || 0);
+  const kept = paid - back;
+  return (
+    <form
+      className="space-y-3 rounded-lg border border-destructive/30 p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ ...(kind === 'cancel' && reason && { reason }), ...(back > 0 && { refund: back, refund_method: method }) });
+      }}
+    >
+      <p className="text-sm">
+        <b>{naira(paid)}</b> was paid on this booking.{' '}
+        {manager ? 'Keep it as a cancellation fee, or give some or all of it back.' : 'It is kept as a cancellation fee. Only a manager can give money back.'}
+      </p>
+      {kind === 'cancel' && (
+        <Field label="Reason (optional)">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder="e.g. Guest's plans changed" />
+        </Field>
+      )}
+      {manager && (
+        <div className="flex flex-wrap gap-3">
+          <Field label="Give back" className="w-40" hint={back > paid ? `At most ${naira(paid)}` : undefined}>
+            <MoneyInput value={refund} onChange={setRefund} />
+          </Field>
+          {back > 0 && (
+            <Field label="Paid back by" className="w-40">
+              <SelectField value={method} onChange={(v) => setMethod(v as PaymentMethod)} options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_LABELS[m] }))} />
+            </Field>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {kept > 0 ? `${naira(kept)} is kept and counts as cancellation income today.` : 'Nothing is kept.'}
+        {back > 0 && ` ${naira(back)} is recorded as money out today${method === 'cash' ? ', from the cash drawer' : ''}.`}
+      </p>
+      <Button type="submit" variant="destructive" size="sm" disabled={busy || back > paid}>
+        {kind === 'cancel' ? 'Cancel reservation' : 'Mark no-show'}
+      </Button>
+    </form>
+  );
+}
+
+/** Manager only: pay back what a stay has overpaid. Always with a reason, for the activity log. */
+function RefundForm({ owed, busy, onSubmit }: { owed: number; busy: boolean; onSubmit: (b: { amount: number; method: PaymentMethod; reason: string }) => void }) {
+  const [amount, setAmount] = useState(String(owed));
+  const [method, setMethod] = useState<PaymentMethod>('transfer');
+  const [reason, setReason] = useState('');
+  useEffect(() => setAmount(String(owed)), [owed]);
+  return (
+    <form
+      className="space-y-3 rounded-lg border p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ amount: Number(amount), method, reason });
+      }}
+    >
+      <p className="text-sm">
+        The guest has paid {naira(owed)} more than the bill.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Give back" className="w-36">
+          <MoneyInput value={amount} onChange={setAmount} />
+        </Field>
+        <Field label="Method" className="w-36">
+          <SelectField value={method} onChange={(v) => setMethod(v as PaymentMethod)} options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_LABELS[m] }))} />
+        </Field>
+        <Field label="Reason" className="min-w-40 flex-1">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder="e.g. Left a night early" required minLength={3} />
+        </Field>
+      </div>
+      <Button type="submit" variant="outline" size="sm" disabled={busy || !amount || Number(amount) > owed || reason.trim().length < 3}>
+        Record refund
+      </Button>
+    </form>
   );
 }
 

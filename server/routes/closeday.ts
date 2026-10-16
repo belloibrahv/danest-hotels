@@ -27,6 +27,24 @@ function dayReport(d: string) {
   };
 }
 
+/** Bookings that must be settled before a day can close: guests who never arrived, and guests past their departure. */
+function openStays(d: string) {
+  return {
+    no_shows: all(
+      `SELECT r.id, r.code, r.check_in, r.status, g.name AS guest_name, t.name AS room_type
+         FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id
+        WHERE r.status IN ('pending','confirmed') AND r.check_in <= ? ORDER BY r.check_in`,
+      d,
+    ),
+    overdue: all(
+      `SELECT r.id, r.code, r.check_out, g.name AS guest_name, rm.number AS room_number, r.total + ${CHARGES_SQL} - ${PAID_SQL} AS balance
+         FROM reservations r JOIN guests g ON g.id = r.guest_id LEFT JOIN rooms rm ON rm.id = r.room_id
+        WHERE r.status = 'checked_in' AND r.check_out <= ? ORDER BY r.check_out`,
+      d,
+    ),
+  };
+}
+
 closeDay.get(
   '/close-day',
   manager,
@@ -46,18 +64,7 @@ closeDay.get(
       last_closed: last,
       closed: closure ? { ...closure, summary: JSON.parse(closure.summary) } : null,
       checks: {
-        no_shows: all(
-          `SELECT r.id, r.code, r.check_in, r.status, g.name AS guest_name, t.name AS room_type
-             FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id
-            WHERE r.status IN ('pending','confirmed') AND r.check_in <= ? ORDER BY r.check_in`,
-          d,
-        ),
-        overdue: all(
-          `SELECT r.id, r.code, r.check_out, g.name AS guest_name, rm.number AS room_number, r.total + ${CHARGES_SQL} - ${PAID_SQL} AS balance
-             FROM reservations r JOIN guests g ON g.id = r.guest_id LEFT JOIN rooms rm ON rm.id = r.room_id
-            WHERE r.status = 'checked_in' AND r.check_out <= ? ORDER BY r.check_out`,
-          d,
-        ),
+        ...openStays(d),
         unpaid: all(
           `SELECT * FROM (SELECT r.id, r.code, g.name AS guest_name, rm.number AS room_number, r.total + ${CHARGES_SQL} - ${PAID_SQL} AS balance
              FROM reservations r JOIN guests g ON g.id = r.guest_id LEFT JOIN rooms rm ON rm.id = r.room_id
@@ -89,6 +96,12 @@ closeDay.post(
       const last = lastClosedDate();
       if (last && d <= last) throw new HttpError(409, `The books are already closed up to ${last}`);
       if (last && d !== addDays(last, 1)) throw new HttpError(409, `Close ${addDays(last, 1)} first — days are closed in order.`);
+      // A stay left open would later post room nights (or drop them) on a day that is already locked.
+      const { no_shows, overdue } = openStays(d);
+      if (no_shows.length || overdue.length) {
+        const parts = [no_shows.length && `${no_shows.length} not arrived`, overdue.length && `${overdue.length} past departure`].filter(Boolean);
+        throw new HttpError(409, `Sort out every booking before closing (${parts.join(', ')}): check in, mark as no-show, extend or check out.`);
+      }
       const report = dayReport(d);
       const expected = report.collections.byMethod;
       const variance = counted - (expected.cash ?? 0);

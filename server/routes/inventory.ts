@@ -149,6 +149,38 @@ inventory.post(
   }),
 );
 
+/**
+ * Void a till mistake: the items go back on the shelf at the cost they left at, and the receipt is
+ * removed. Manager only, open days only, and a room charge only while the guest's bill is still open.
+ * The full receipt is kept in the activity log.
+ */
+inventory.post(
+  '/sales/:id/void',
+  allow('manager'),
+  h((req, res) => {
+    const user = currentUser(req);
+    const id = Number(req.params.id);
+    const reason = str(body(req), 'reason', { min: 3, max: 200 });
+    tx(() => {
+      const sale = get<{ id: number; receipt_no: string; date: string; method: string; reservation_id: number | null; total: number }>('SELECT * FROM sales WHERE id = ?', id);
+      if (!sale) throw new HttpError(404, 'Receipt not found');
+      assertOpen(sale.date);
+      if (sale.reservation_id && !get("SELECT 1 FROM reservations WHERE id = ? AND status = 'checked_in'", sale.reservation_id)) {
+        throw new HttpError(409, "The guest has checked out, so their bill is closed. Give the money back as a refund instead.");
+      }
+      const items = all<{ product_id: number; qty: number; unit_price: number; unit_cost: number }>('SELECT product_id, qty, unit_price, unit_cost FROM sale_items WHERE sale_id = ?', id);
+      for (const l of items) {
+        const p = get<Product>('SELECT * FROM products WHERE id = ?', l.product_id)!;
+        const avg = Math.round((p.stock * p.avg_cost + l.qty * l.unit_cost) / (p.stock + l.qty));
+        run('UPDATE products SET stock = stock + ?, avg_cost = ? WHERE id = ?', l.qty, avg, l.product_id);
+      }
+      run('DELETE FROM sales WHERE id = ?', id);
+      audit(user.id, 'void', 'sale', id, { reason, ...sale, items });
+    });
+    res.json({ ok: true });
+  }),
+);
+
 inventory.get(
   '/sales',
   allow('manager', 'bar'),

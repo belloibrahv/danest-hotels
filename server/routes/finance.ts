@@ -4,7 +4,7 @@ import { inHouse } from './inventory.ts';
 import { assertOpen, lastClosedDate } from '../days.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
-import { all, audit, get, run } from '../db.ts';
+import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, date, daysBetween, h, int, oneOf, range, str, today } from '../lib.ts';
 
 export const finance = Router();
@@ -51,6 +51,27 @@ finance.post(
     );
     audit(user.id, 'create', 'facility_income', id, { facility, amount, reservation_id: reservationId ?? undefined });
     res.status(201).json({ id });
+  }),
+);
+
+/** Void a mistaken entry on an open day. The full row is kept in the activity log. */
+finance.post(
+  '/facility-income/:id/void',
+  allow('manager'),
+  h((req, res) => {
+    const id = Number(req.params.id);
+    const reason = str(body(req), 'reason', { min: 3, max: 200 });
+    tx(() => {
+      const row = get<{ date: string; reservation_id: number | null }>('SELECT * FROM facility_income WHERE id = ?', id);
+      if (!row) throw new HttpError(404, 'Entry not found');
+      assertOpen(row.date);
+      if (row.reservation_id && !get("SELECT 1 FROM reservations WHERE id = ? AND status = 'checked_in'", row.reservation_id)) {
+        throw new HttpError(409, 'The guest has checked out, so their bill is closed. Give the money back as a refund instead.');
+      }
+      run('DELETE FROM facility_income WHERE id = ?', id);
+      audit(currentUser(req).id, 'void', 'facility_income', id, { reason, ...row });
+    });
+    res.json({ ok: true });
   }),
 );
 
@@ -131,6 +152,10 @@ export function roomNightsByDay(from: string, to: string) {
   );
 }
 
+/** Deposits kept when a booking was cancelled or the guest didn't arrive. Not room-night revenue, so ADR stays honest. */
+const retainedBetween = (from: string, to: string) =>
+  get<{ v: number }>("SELECT COALESCE(SUM(retained), 0) v FROM reservations WHERE status = 'cancelled' AND cancelled_on BETWEEN ? AND ?", from, to)!.v;
+
 /** The three numbers every hotel owner and investor asks for. */
 export function kpis(from: string, to: string) {
   const nightsByDay = roomNightsByDay(from, to);
@@ -148,13 +173,17 @@ export function kpis(from: string, to: string) {
   };
 }
 
-/** Money actually received, by how it was paid. Room-charged sales aren't cash until the folio is settled. */
+/**
+ * Money actually received, by how it was paid, less money given back. Room-charged sales aren't
+ * cash until the folio is settled. A cash refund comes out of the drawer, so it lowers expected cash.
+ */
 export function collections(from: string, to: string) {
   const rows = all<{ source: string; method: string; v: number }>(
     `SELECT 'Room bills' AS source, method, SUM(amount) v FROM payments WHERE method <> 'company' AND date BETWEEN ?1 AND ?2 GROUP BY method
      UNION ALL SELECT 'Bar & shop', method, SUM(total) FROM sales WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method
      UNION ALL SELECT 'Gym, pool & lounge', method, SUM(amount) FROM facility_income WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method
-     UNION ALL SELECT 'Company accounts', method, SUM(amount) FROM company_payments WHERE date BETWEEN ?1 AND ?2 GROUP BY method`,
+     UNION ALL SELECT 'Company accounts', method, SUM(amount) FROM company_payments WHERE date BETWEEN ?1 AND ?2 GROUP BY method
+     UNION ALL SELECT 'Refunds', method, -SUM(amount) FROM refunds WHERE date BETWEEN ?1 AND ?2 GROUP BY method`,
     from,
     to,
   );
@@ -168,8 +197,9 @@ export function collections(from: string, to: string) {
 }
 
 export function profitAndLoss(from: string, to: string) {
-  const revenue: Record<StreamKey, number> = { rooms: 0, drinks: 0, confectionery: 0, gym: 0, pool: 0, lounge: 0 };
+  const revenue: Record<StreamKey, number> = { rooms: 0, drinks: 0, confectionery: 0, cancellations: 0, gym: 0, pool: 0, lounge: 0 };
   revenue.rooms = roomNightsByDay(from, to).reduce((a, d) => a + d.revenue, 0);
+  revenue.cancellations = retainedBetween(from, to);
 
   const cogs: Money = { drinks: 0, confectionery: 0 };
   for (const r of all<{ category: 'drinks' | 'confectionery'; sales: number; cost: number }>(
@@ -226,6 +256,10 @@ function dailySeries(from: string, to: string) {
       if (day) day[key] = r.v;
     }
   };
+  for (const r of all<{ date: string; v: number }>("SELECT cancelled_on AS date, SUM(retained) v FROM reservations WHERE status = 'cancelled' AND cancelled_on BETWEEN ? AND ? GROUP BY cancelled_on", from, to)) {
+    const day = days.get(r.date);
+    if (day) day.rooms += r.v;
+  }
   add('SELECT date, SUM(total) v FROM sales WHERE date BETWEEN ? AND ? GROUP BY date', 'bar');
   add('SELECT date, SUM(amount) v FROM facility_income WHERE date BETWEEN ? AND ? GROUP BY date', 'facilities');
   add('SELECT date, SUM(amount) v FROM expenses WHERE date BETWEEN ? AND ? GROUP BY date', 'expenses');
@@ -270,7 +304,7 @@ finance.get(
     for (const r of p.operating) rows.push(['Operating expenses', r.label, r.amount]);
     rows.push(['Operating expenses', 'Total operating expenses', p.totalOperating], ['', 'Net profit', p.netProfit], [], ['Memo', 'Stock purchased in period', p.stockPurchases], ['Memo', 'Closing stock value (at cost)', p.stockValue]);
     rows.push([], ['KPI', 'Room-nights sold', p.kpis.roomNightsSold], ['KPI', 'Occupancy %', Math.round(p.kpis.occupancy * 1000) / 10], ['KPI', 'ADR (average daily rate)', p.kpis.adr], ['KPI', 'RevPAR', p.kpis.revpar]);
-    rows.push([], ['Collected', 'Cash', p.collections.byMethod.cash], ['Collected', 'Bank transfer', p.collections.byMethod.transfer], ['Collected', 'POS / card', p.collections.byMethod.pos], ['Collected', 'Total collected', p.collections.total]);
+    rows.push([], ['Collected', 'Cash', p.collections.byMethod.cash], ['Collected', 'Bank transfer', p.collections.byMethod.transfer], ['Collected', 'POS / card', p.collections.byMethod.pos], ['Collected', 'Paid online (Paystack)', p.collections.byMethod.online ?? 0], ['Collected', 'Total collected', p.collections.total]);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="danest-pnl-${from}-to-${to}.csv"`);
     res.send('﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'));

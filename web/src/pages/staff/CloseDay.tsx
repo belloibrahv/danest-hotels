@@ -215,7 +215,12 @@ export default function CloseDay() {
                   <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} required={!!variance} rows={2} />
                 </Field>
                 <ErrorNote error={closeErr} />
-                <Button size="lg" disabled={busy || counted === ''}>
+                {open > 0 && (
+                  <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2.5 text-sm">
+                    Sort the {open} booking{open > 1 ? 's' : ''} under “to sort before closing” first: check in, mark as no-show, extend or check out.
+                  </p>
+                )}
+                <Button size="lg" disabled={busy || counted === '' || open > 0}>
                   <Lock /> Close {fmtDate(data.date)}
                 </Button>
                 <p className="text-xs text-muted-foreground">After closing, no payment, sale or expense can be dated on or before this day unless a manager reopens it. Reopening is logged.</p>
