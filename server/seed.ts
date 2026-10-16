@@ -1,8 +1,11 @@
 /**
- * Demo data: ~4 months of realistic trading for a 20-room Ibadan hotel, ending today.
- * Deterministic (seeded PRNG) so every demo tells the same story.
+ * DEMO DATA — for local development and the automated tests only. Never for a live hotel.
+ * ~4 months of invented trading for a 20-room hotel, ending today, with invented guests
+ * and staff. Deterministic (seeded PRNG) so every run tells the same story.
  *
- *   npm run seed            # wipe and reload
+ *   npm run seed:demo        # wipe the local database and load it
+ *
+ * Refuses to run when NODE_ENV=production.
  */
 import { hashPassword } from './auth.ts';
 import { all, db, get, run, tx } from './db.ts';
@@ -14,6 +17,7 @@ export const DEMO_USERS = [
   { name: 'Tunde Bakare', username: 'frontdesk', role: 'frontdesk' },
   { name: 'Grace Okon', username: 'bar', role: 'bar' },
   { name: 'Ibrahim Musa', username: 'frontdesk2', role: 'frontdesk' },
+  { name: 'Blessing Eze', username: 'housekeeping', role: 'housekeeping' },
 ] as const;
 
 const ROOM_TYPES = [
@@ -108,12 +112,24 @@ export function seed() {
   const pwHash = hashPassword(DEMO_PASSWORD);
 
   tx(() => {
-    for (const t of ['audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'users', 'rate_limits']) {
+    for (const t of ['day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
     const userIds = DEMO_USERS.map((u) => run('INSERT INTO users (name, username, role, password_hash) VALUES (?,?,?,?)', u.name, u.username, u.role, pwHash).id);
     const [managerId, deskId, barId, desk2Id] = userIds;
+
+    for (const [k, v] of Object.entries({ phone: '0803 000 0000', email: 'frontdesk@example.com', highlights: [
+      { title: 'Gated & secure', text: 'Guarded around the clock' },
+      { title: 'Power that stays on', text: 'Generator backup, day and night' },
+      { title: 'Free Wi-Fi', text: 'In every room and the lounge' },
+      { title: 'Pay on arrival', text: 'Cash, transfer or POS — no card to book' },
+    ] })) run('INSERT INTO settings (key, value) VALUES (?, ?)', k, JSON.stringify(v));
+    for (const [f, n, p] of [
+      ['gym', 'Gym day pass', 3000], ['gym', 'Gym monthly membership', 25000], ['gym', 'Personal training (4 sessions)', 40000],
+      ['pool', 'Pool day pass — child', 3000], ['pool', 'Pool day pass — adult', 5000], ['pool', 'Pool party booking', 120000],
+      ['lounge', 'Friday karaoke night — cover', 2000], ['lounge', 'VIP table reservation', 20000], ['lounge', 'Lounge hire — private event', 200000],
+    ] as const) run('INSERT INTO facility_items (facility, name, price) VALUES (?,?,?)', f, n, p);
 
     // ----- rooms -----
     const rooms: { id: number; typeId: number; rate: number; number: string }[] = [];
@@ -351,6 +367,10 @@ export function seed() {
 }
 
 if (import.meta.main || process.argv[1]?.endsWith('seed.ts')) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Refusing to load demo data into a production database.');
+    process.exit(1);
+  }
   const r = seed();
   console.log(`Demo data loaded. Sign in as ${r.users.join(' / ')} with password ${r.password}`);
 }

@@ -264,6 +264,86 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN ip TEXT;
   ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
   `,
+
+  // 2 — real-hotel configuration, housekeeping, maintenance, closing the day
+  `
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  ALTER TABLE room_types ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE rooms ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE rooms ADD COLUMN assigned_to INTEGER REFERENCES users(id);
+
+  CREATE TABLE facility_items (
+    id INTEGER PRIMARY KEY,
+    facility TEXT NOT NULL CHECK (facility IN ('gym','pool','lounge')),
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL CHECK (price >= 0),
+    active INTEGER NOT NULL DEFAULT 1
+  );
+
+  CREATE TABLE users_v2 (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('manager','frontdesk','bar','housekeeping')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER NOT NULL DEFAULT 0,
+    last_login_at TEXT
+  );
+  INSERT INTO users_v2 (id, name, username, password_hash, role, active, created_at, totp_secret, totp_enabled, totp_last_step, last_login_at)
+    SELECT id, name, username, password_hash, role, active, created_at, totp_secret, totp_enabled, totp_last_step, last_login_at FROM users;
+  DROP TABLE users;
+  ALTER TABLE users_v2 RENAME TO users;
+
+  CREATE TABLE housekeeping_log (
+    id INTEGER PRIMARY KEY,
+    room_id INTEGER NOT NULL REFERENCES rooms(id),
+    action TEXT NOT NULL CHECK (action IN ('dirty','assigned','cleaned','out_of_order','back_in_service')),
+    user_id INTEGER REFERENCES users(id),
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_hk_room ON housekeeping_log(room_id, id);
+
+  CREATE TABLE maintenance_tickets (
+    id INTEGER PRIMARY KEY,
+    room_id INTEGER REFERENCES rooms(id),
+    area TEXT,
+    title TEXT NOT NULL,
+    details TEXT,
+    priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','urgent')),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','resolved')),
+    blocks_room INTEGER NOT NULL DEFAULT 0,
+    reported_by INTEGER REFERENCES users(id),
+    resolved_by INTEGER REFERENCES users(id),
+    resolution TEXT,
+    cost INTEGER,
+    expense_id INTEGER REFERENCES expenses(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+  );
+  CREATE INDEX idx_mt_status ON maintenance_tickets(status);
+
+  CREATE TABLE day_closures (
+    date TEXT PRIMARY KEY,
+    closed_by INTEGER NOT NULL REFERENCES users(id),
+    closed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expected_cash INTEGER NOT NULL,
+    counted_cash INTEGER NOT NULL,
+    expected_transfer INTEGER NOT NULL,
+    expected_pos INTEGER NOT NULL,
+    variance INTEGER NOT NULL,
+    notes TEXT,
+    summary TEXT NOT NULL
+  );
+  `,
 ];
 
 {

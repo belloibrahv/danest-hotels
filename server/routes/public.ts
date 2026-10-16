@@ -13,7 +13,10 @@ publicApi.get(
     const checkIn = isDate(req.query.check_in) ? req.query.check_in : today();
     const checkOut = isDate(req.query.check_out) && req.query.check_out > checkIn ? req.query.check_out : addDays(checkIn, 1);
     const free = availabilityByType(checkIn, checkOut);
-    const types = all<{ id: number; amenities: string }>('SELECT id, name, slug, rate, capacity, description, amenities FROM room_types ORDER BY rate');
+    const types = all<{ id: number; amenities: string }>(
+      `SELECT id, name, slug, rate, capacity, description, amenities FROM room_types t
+        WHERE t.active = 1 AND EXISTS (SELECT 1 FROM rooms r WHERE r.room_type_id = t.id AND r.active = 1) ORDER BY rate`,
+    );
     res.json(types.map((t) => ({ ...t, amenities: JSON.parse(t.amenities), available: free.get(t.id) ?? 0 })));
   }),
 );
@@ -38,7 +41,7 @@ publicApi.post(
     const notes = str(b, 'notes', { max: 500, optional: true });
 
     const result = tx(() => {
-      const type = get<{ rate: number; capacity: number; name: string }>('SELECT rate, capacity, name FROM room_types WHERE id = ?', typeId);
+      const type = get<{ rate: number; capacity: number; name: string }>('SELECT rate, capacity, name FROM room_types WHERE id = ? AND active = 1', typeId);
       if (!type) throw bad('Please choose a room type');
       if (adults > type.capacity) throw bad(`The ${type.name} sleeps up to ${type.capacity}`);
       if ((availabilityByType(checkIn, checkOut).get(typeId) ?? 0) < 1) {

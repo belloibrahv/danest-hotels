@@ -8,6 +8,8 @@ import {
   type ReservationStatus,
 } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
+import { assertOpen } from '../days.ts';
+import { logRoom } from './housekeeping.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, code, date, daysBetween, h, int, isDate, oneOf, str, today } from '../lib.ts';
 
@@ -29,7 +31,7 @@ export function freeRooms(roomTypeId: number | null, checkIn: string, checkOut: 
   return all<{ id: number; number: string; room_type_id: number; status: string }>(
     `SELECT r.id, r.number, r.room_type_id, r.status FROM rooms r
       WHERE (:type IS NULL OR r.room_type_id = :type)
-        AND r.status <> 'maintenance'
+        AND r.active = 1 AND r.status <> 'maintenance'
         AND NOT EXISTS (
           SELECT 1 FROM reservations x
            WHERE x.room_id = r.id AND x.status IN ${HOLDING} AND x.id <> :exclude
@@ -115,7 +117,7 @@ reservations.get(
   '/room-types',
   allow('manager', 'frontdesk', 'bar'),
   h((_req, res) => {
-    res.json(all('SELECT id, name, slug, rate, capacity, description FROM room_types ORDER BY rate'));
+    res.json(all('SELECT id, name, slug, rate, capacity, description FROM room_types WHERE active = 1 ORDER BY rate'));
   }),
 );
 
@@ -147,6 +149,7 @@ reservations.get(
            JOIN room_types t ON t.id = rm.room_type_id
            LEFT JOIN reservations cur ON cur.room_id = rm.id AND cur.status = 'checked_in'
            LEFT JOIN guests g ON g.id = cur.guest_id
+          WHERE rm.active = 1
           ORDER BY rm.number`,
         t,
       ),
@@ -163,7 +166,11 @@ reservations.patch(
     const occupied = get('SELECT 1 FROM reservations WHERE room_id = ? AND status = ?', id, 'checked_in');
     if (occupied && status !== 'occupied') throw new HttpError(409, 'A guest is checked into this room — check them out first');
     if (!occupied && status === 'occupied') throw new HttpError(409, 'Rooms become occupied by checking a guest in');
+    if (status === 'available' && get("SELECT 1 FROM maintenance_tickets WHERE room_id = ? AND blocks_room = 1 AND status <> 'resolved'", id)) {
+      throw new HttpError(409, 'This room has an open repair. Resolve it under Housekeeping first.');
+    }
     if (!run('UPDATE rooms SET status = ? WHERE id = ?', status, id).changes) throw new HttpError(404, 'Room not found');
+    logRoom(id, status === 'cleaning' ? 'dirty' : status === 'maintenance' ? 'out_of_order' : status === 'available' ? 'cleaned' : 'back_in_service', currentUser(req).id);
     audit(currentUser(req).id, 'room_status', 'room', id, { status });
     res.json({ ok: true });
   }),
@@ -206,7 +213,7 @@ reservations.get(
     const from = isDate(req.query.from) ? req.query.from : addDays(today(), -2);
     const days = Math.min(Math.max(Number(req.query.days) || 14, 7), 42);
     const to = addDays(from, days);
-    const rooms = all('SELECT rm.id, rm.number, rm.floor, rm.status, t.name AS room_type, t.id AS room_type_id FROM rooms rm JOIN room_types t ON t.id = rm.room_type_id ORDER BY rm.number');
+    const rooms = all('SELECT rm.id, rm.number, rm.floor, rm.status, t.name AS room_type, t.id AS room_type_id FROM rooms rm JOIN room_types t ON t.id = rm.room_type_id WHERE rm.active = 1 ORDER BY rm.number');
     const stays = all(
       `SELECT r.id, r.code, r.room_id, r.room_type_id, r.check_in, r.check_out, r.status, r.source, g.name AS guest_name, g.vip AS guest_vip,
               r.total + ${CHARGES_SQL} - ${PAID_SQL} AS balance
@@ -325,7 +332,7 @@ reservations.post(
     const notes = str(b, 'notes', { max: 500, optional: true });
     const roomId = int(b, 'room_id', { min: 1, optional: true });
     const checkInNow = b.check_in_now === true;
-    const type = get<{ rate: number }>('SELECT rate FROM room_types WHERE id = ?', typeId);
+    const type = get<{ rate: number }>('SELECT rate FROM room_types WHERE id = ? AND active = 1', typeId);
     if (!type) throw bad('Unknown room type');
 
     // Only a manager may sell below or above the published rate.
@@ -358,6 +365,7 @@ reservations.post(
         checkInNow ? new Date().toISOString() : null,
       );
       if (checkInNow) run("UPDATE rooms SET status = 'occupied' WHERE id = ?", roomId);
+      if (deposit) assertOpen(today());
       if (deposit) run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', id, deposit, depositMethod, today(), user.id);
       audit(user.id, 'create', 'reservation', id, { status, rate, nights });
       return { id };
@@ -436,6 +444,7 @@ reservations.post(
       }
       run("UPDATE reservations SET status = 'checked_out', checked_out_at = ? WHERE id = ?", new Date().toISOString(), id);
       run("UPDATE rooms SET status = 'cleaning' WHERE id = ?", r.room_id);
+      if (r.room_id) logRoom(r.room_id, 'dirty', user.id, 'Guest checked out');
       audit(user.id, balance > 0 ? 'check_out_with_balance' : 'check_out', 'reservation', id, balance > 0 ? { balance } : undefined);
     });
     res.json({ ok: true });
@@ -485,9 +494,28 @@ reservations.post(
         if (room.status !== 'available') throw new HttpError(409, `Room ${room.number} is not ready (${room.status})`);
         run("UPDATE rooms SET status = 'cleaning' WHERE id = ?", r.room_id);
         run("UPDATE rooms SET status = 'occupied' WHERE id = ?", roomId);
+        if (r.room_id) logRoom(r.room_id, 'dirty', user.id, 'Guest moved rooms');
       }
       run('UPDATE reservations SET room_id = ? WHERE id = ?', roomId, id);
       audit(user.id, 'room_move', 'reservation', id, { room: room.number });
+    });
+    res.json({ ok: true });
+  }),
+);
+
+/** A guest who never arrived. Kept as a cancellation, marked so reports can count no-shows. */
+reservations.post(
+  '/reservations/:id/no-show',
+  desk,
+  h((req, res) => {
+    const user = currentUser(req);
+    const id = Number(req.params.id);
+    tx(() => {
+      const r = load(id);
+      if (r.status !== 'pending' && r.status !== 'confirmed') throw new HttpError(409, 'Only bookings that have not arrived can be marked as no-show');
+      if (r.check_in > today()) throw new HttpError(409, 'The guest is not due yet');
+      run("UPDATE reservations SET status = 'cancelled', notes = '[No-show] ' || COALESCE(notes, '') WHERE id = ?", id);
+      audit(user.id, 'no_show', 'reservation', id);
     });
     res.json({ ok: true });
   }),
@@ -522,6 +550,7 @@ reservations.post(
     tx(() => {
       const r = load(id);
       if (r.status === 'cancelled') throw new HttpError(409, 'Reservation is cancelled');
+      assertOpen(today());
       const balance = balanceOf(id);
       if (amount > balance) throw bad(`Amount is more than the outstanding balance (₦${balance.toLocaleString('en-NG')})`);
       const p = run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', id, amount, method, today(), user.id);

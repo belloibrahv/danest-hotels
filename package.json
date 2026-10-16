@@ -11,7 +11,7 @@
     "dev": "concurrently -k -n api,web -c yellow,cyan \"node --disable-warning=ExperimentalWarning --watch server/index.ts\" \"vite\"",
     "build": "vite build",
     "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.ts",
-    "seed": "node --disable-warning=ExperimentalWarning server/seed.ts --reset",
+    "seed:demo": "node --disable-warning=ExperimentalWarning server/seed.ts --reset",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "node --disable-warning=ExperimentalWarning --test server/test/*.test.ts"
   },

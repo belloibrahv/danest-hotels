@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { CHARGE_METHODS, PRODUCT_CATEGORIES } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
+import { assertOpen } from '../days.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, bad, body, code, date, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -97,6 +98,7 @@ inventory.post(
     const reason = str(b, 'reason', { max: 200 });
     const id = Number(req.params.id);
     tx(() => {
+      assertOpen(today());
       const p = get<Product>('SELECT * FROM products WHERE id = ?', id);
       if (!p) throw new HttpError(404, 'Product not found');
       if (p.stock + change < 0) throw bad(`Only ${p.stock} in stock`);
@@ -118,6 +120,7 @@ inventory.post(
     const method = oneOf(b, 'method', CHARGE_METHODS);
     const items = lines(b.items, () => ({}));
     const sale = tx(() => {
+      assertOpen(today());
       const reservationId = method === 'room' ? inHouse(b.reservation_id) : null;
       let total = 0;
       let cost = 0;
@@ -218,6 +221,7 @@ inventory.post(
     const notes = str(b, 'notes', { max: 300, optional: true });
     const items = lines<{ product_id: number; qty: number; unit_cost: number }>(b.items, (l) => ({ unit_cost: int(l, 'unit_cost', { min: 0, max: 5_000_000 }) }));
     const result = tx(() => {
+      assertOpen(when);
       const total = items.reduce((s, l) => s + l.qty * l.unit_cost, 0);
       const ref = code('PO');
       const { id } = run('INSERT INTO purchases (ref, supplier, date, total, notes, recorded_by) VALUES (?,?,?,?,?,?)', ref, supplier, when, total, notes || null, user.id);

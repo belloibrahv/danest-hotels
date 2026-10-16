@@ -1,12 +1,20 @@
 // Single source of truth for the business model, shared by the API and the UI.
 
-export const ROLES = ['manager', 'frontdesk', 'bar'] as const;
+export const ROLES = ['manager', 'frontdesk', 'bar', 'housekeeping'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
   manager: 'Manager',
   frontdesk: 'Front desk',
   bar: 'Bar & shop',
+  housekeeping: 'Housekeeping',
+};
+
+export const ROLE_HELP: Record<Role, string> = {
+  manager: 'Everything, including costs, profit, settings and closing the day',
+  frontdesk: 'Reservations, guests, room bills, gym/pool/lounge takings, housekeeping',
+  bar: 'Till, room charges and stock levels — never cost prices',
+  housekeeping: 'Rooms to clean and maintenance reports, on a phone',
 };
 
 export const PAYMENT_METHODS = ['cash', 'transfer', 'pos'] as const;
@@ -99,3 +107,40 @@ export const HOTEL = {
   address: '4, Beckley Street, off Adeyi-Estate, Old Bodija Road, Ibadan, Oyo State',
   timezone: 'Africa/Lagos',
 } as const;
+
+/**
+ * Everything the owner can change about how the hotel presents itself. Blank values are
+ * simply not shown — the website never invents a phone number or a promise.
+ */
+export interface HotelSettings {
+  name: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  check_in_time: string;
+  check_out_time: string;
+  bank_details: string;
+  invoice_note: string;
+  highlights: { title: string; text: string }[];
+}
+
+export const DEFAULT_SETTINGS: HotelSettings = {
+  name: HOTEL.name,
+  tagline: HOTEL.tagline,
+  address: HOTEL.address,
+  phone: '',
+  whatsapp: '',
+  email: '',
+  check_in_time: '14:00',
+  check_out_time: '12:00',
+  bank_details: '',
+  invoice_note: 'Thank you for staying with us.',
+  highlights: [],
+};
+
+export const TICKET_PRIORITIES = ['low', 'normal', 'urgent'] as const;
+export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
+export const TICKET_STATUSES = ['open', 'in_progress', 'resolved'] as const;
+export type TicketStatus = (typeof TICKET_STATUSES)[number];

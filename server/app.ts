@@ -3,7 +3,10 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadSession } from './auth.ts';
 import { HttpError } from './lib.ts';
+import { closeDay } from './routes/closeday.ts';
+import { config } from './routes/config.ts';
 import { finance } from './routes/finance.ts';
+import { housekeeping } from './routes/housekeeping.ts';
 import { inventory } from './routes/inventory.ts';
 import { publicApi } from './routes/public.ts';
 import { reservations } from './routes/reservations.ts';
@@ -64,6 +67,9 @@ export function createApp() {
   api.use(reservations);
   api.use(inventory);
   api.use(finance);
+  api.use(config);
+  api.use(housekeeping);
+  api.use(closeDay);
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use('/api', api);
 

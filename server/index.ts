@@ -1,13 +1,18 @@
 import { createApp } from './app.ts';
-import { get } from './db.ts';
-import { seed } from './seed.ts';
+import { needsSetup, setupCode } from './settings.ts';
 
-if (!get('SELECT 1 FROM users LIMIT 1')) {
-  console.log('Empty database — loading demo data…');
-  seed();
+// Production starts empty: no demo data, no invented staff. The owner creates their own
+// account at /setup with a one-time code, then adds real rooms, prices and staff.
+if (needsSetup()) {
+  const fromEnv = !!process.env.DANEST_SETUP_CODE;
+  console.log(
+    fromEnv
+      ? 'No accounts yet. Open /setup and use the code in DANEST_SETUP_CODE to create the owner account.'
+      : `No accounts yet. Open /setup and use this one-time setup code: ${setupCode()}`,
+  );
 }
 
 const port = Number(process.env.PORT ?? 4000);
 createApp().listen(port, () => {
-  console.log(`Danest API listening on http://localhost:${port}`);
+  console.log(`Danest listening on http://localhost:${port}`);
 });

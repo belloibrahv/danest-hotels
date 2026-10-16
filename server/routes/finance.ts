@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { CHARGE_METHODS, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
 import { inHouse } from './inventory.ts';
+import { assertOpen, lastClosedDate } from '../days.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
 import { all, audit, get, run } from '../db.ts';
@@ -42,6 +43,7 @@ finance.post(
     // Front desk records today's takings only; back-dating is a manager decision.
     const when = user.role === 'manager' && method !== 'room' ? date(b, 'date', today()) : today();
     if (when > today()) throw bad('Date cannot be in the future');
+    assertOpen(when);
     const reservationId = method === 'room' ? inHouse(b.reservation_id) : null;
     const { id } = run(
       'INSERT INTO facility_income (facility, item, customer, amount, method, reservation_id, date, recorded_by) VALUES (?,?,?,?,?,?,?,?)',
@@ -84,6 +86,7 @@ finance.post(
     const method = oneOf(b, 'method', PAYMENT_METHODS);
     const when = date(b, 'date', today());
     if (when > today()) throw bad('Date cannot be in the future');
+    assertOpen(when);
     const { id } = run('INSERT INTO expenses (date, category, description, paid_to, amount, method, recorded_by) VALUES (?,?,?,?,?,?,?)', when, category, description, paidTo || null, amount, method, user.id);
     audit(user.id, 'create', 'expense', id, { category, amount });
     res.status(201).json({ id });
@@ -95,8 +98,9 @@ finance.delete(
   allow('manager'),
   h((req, res) => {
     const id = Number(req.params.id);
-    const row = get('SELECT * FROM expenses WHERE id = ?', id);
+    const row = get<{ date: string }>('SELECT * FROM expenses WHERE id = ?', id);
     if (!row) throw new HttpError(404, 'Expense not found');
+    assertOpen(row.date);
     run('DELETE FROM expenses WHERE id = ?', id);
     // The full row is kept in the audit trail so a deletion can always be explained.
     audit(currentUser(req).id, 'delete', 'expense', id, row);
@@ -129,7 +133,7 @@ export function roomNightsByDay(from: string, to: string) {
 export function kpis(from: string, to: string) {
   const nightsByDay = roomNightsByDay(from, to);
   const elapsed = nightsByDay.filter((d) => d.date <= today()).length;
-  const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms')!.n;
+  const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms WHERE active = 1')!.n;
   const sold = nightsByDay.reduce((a, d) => a + d.nights, 0);
   const revenue = nightsByDay.reduce((a, d) => a + d.revenue, 0);
   const available = rooms * elapsed;
@@ -237,7 +241,7 @@ finance.get(
       ...profitAndLoss(from, to),
       previous: { from: prev.from, to: prev.to, totalRevenue: prev.totalRevenue, netProfit: prev.netProfit, kpis: prev.kpis },
       daily: days <= 120 ? dailySeries(from, to) : [],
-      rooms: get<{ n: number }>('SELECT COUNT(*) n FROM rooms')!.n,
+      rooms: get<{ n: number }>('SELECT COUNT(*) n FROM rooms WHERE active = 1')!.n,
     });
   }),
 );
@@ -277,12 +281,13 @@ finance.get(
   allow('manager', 'frontdesk'),
   h((req, res) => {
     const t = today();
-    const rooms = all<{ status: string; n: number }>('SELECT status, COUNT(*) n FROM rooms GROUP BY status');
+    const rooms = all<{ status: string; n: number }>('SELECT status, COUNT(*) n FROM rooms WHERE active = 1 GROUP BY status');
     const count = (s: string) => rooms.find((r) => r.status === s)?.n ?? 0;
     const totalRooms = rooms.reduce((a, r) => a + r.n, 0);
     const sellable = totalRooms - count('maintenance');
     const ops = {
       date: t,
+      last_closed: lastClosedDate(),
       rooms: { total: totalRooms, occupied: count('occupied'), available: count('available'), cleaning: count('cleaning'), maintenance: count('maintenance'), sellable },
       occupancy: sellable ? count('occupied') / sellable : 0,
       arrivals: get<{ n: number }>("SELECT COUNT(*) n FROM reservations WHERE check_in = ? AND status IN ('confirmed','pending')", t)!.n,
