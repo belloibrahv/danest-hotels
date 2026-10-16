@@ -95,8 +95,19 @@ export function createApp() {
 
   const dist = resolve(import.meta.dirname, '../dist');
   if (existsSync(dist)) {
+    // The service worker and manifest decide when a new version reaches staff, so they are never cached.
+    app.get(['/sw.js', '/manifest.webmanifest'], (req, res, next) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      if (req.path.endsWith('.webmanifest')) res.type('application/manifest+json');
+      next();
+    });
+    // Built files carry a content hash in their name, so they can be cached for good.
+    // An old page asking for a file from a previous deploy gets a plain 404, never the HTML page.
+    app.use('/assets', express.static(resolve(dist, 'assets'), { immutable: true, maxAge: '1y' }), (_req, res) => res.sendStatus(404));
     // redirect: false — /brand is a page as well as the folder that holds the brand images.
-    app.use(express.static(dist, { index: false, redirect: false, maxAge: '1h' }));
+    app.use(express.static(dist, { index: false, redirect: false, maxAge: '1h', setHeaders: (res, path) => {
+      if (/(sw\.js|\.webmanifest)$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
+    } }));
     app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
   }
 

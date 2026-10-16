@@ -1,9 +1,9 @@
-import { ChevronsUpDown, ExternalLink, KeyRound, LogOut, Moon, Search, Sun } from 'lucide-react';
+import { ChevronsUpDown, ExternalLink, KeyRound, LogOut, MonitorDown, Search } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useTheme } from 'next-themes';
 import { ROLE_LABELS } from '../../../../shared/constants';
 import { CommandMenu } from '@/components/app/command-menu';
+import { ThemeMenu } from '@/components/app/theme';
 import { LoadingRows } from '@/components/app/page';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/sidebar';
 import { homeFor, useAuth } from '@/lib/auth';
 import { useApi } from '@/lib/hooks';
+import { useInstall } from '@/lib/pwa';
 import { DeskProvider, useDesk } from './desk/Desk';
 import Login from './Login';
 import { NAV } from './nav';
@@ -55,8 +56,18 @@ const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
 const Account = lazy(() => import('./Account'));
 const Invoice = lazy(() => import('./Invoice'));
 
+/** The staff app is the installable one: its manifest is only offered on staff pages, never to guests. */
+function useStaffManifest() {
+  useEffect(() => {
+    if (document.querySelector('link[rel="manifest"]')) return;
+    const link = Object.assign(document.createElement('link'), { rel: 'manifest', href: '/manifest.webmanifest' });
+    document.head.append(link);
+  }, []);
+}
+
 export default function StaffApp() {
   const { user } = useAuth();
+  useStaffManifest();
   if (user === undefined) return <LoadingRows />;
   return (
     <Suspense fallback={<LoadingRows />}>
@@ -107,7 +118,8 @@ function Shell() {
   return (
     <SidebarProvider>
       <AppSidebar items={items} pending={pending.data?.length ?? 0} />
-      <SidebarInset>
+      {/* min-w-0: wide content (the tape chart) scrolls inside its card instead of stretching the page. */}
+      <SidebarInset className="min-w-0">
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
@@ -121,7 +133,7 @@ function Shell() {
             <Button variant="ghost" size="icon" className="sm:hidden" onClick={() => setPalette(true)} aria-label="Search">
               <Search />
             </Button>
-            <ThemeToggle />
+            <ThemeMenu />
           </div>
         </header>
         <main className="mx-auto w-full max-w-[1400px] flex-1 p-4 md:p-6 lg:p-8" key={loc.pathname}>
@@ -145,6 +157,7 @@ function Shell() {
 
 function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) {
   const { user, logout } = useAuth();
+  const install = useInstall();
   const { isMobile, setOpenMobile } = useSidebar();
   const loc = useLocation();
   useEffect(() => {
@@ -232,6 +245,11 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
                     <ExternalLink /> Guest website
                   </a>
                 </DropdownMenuItem>
+                {install && (
+                  <DropdownMenuItem onSelect={() => install()}>
+                    <MonitorDown /> Install Danest app
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => logout()}>
                   <LogOut /> Sign out
@@ -246,12 +264,3 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
   );
 }
 
-function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
-  return (
-    <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-      <Sun className="hidden dark:block" />
-      <Moon className="dark:hidden" />
-    </Button>
-  );
-}

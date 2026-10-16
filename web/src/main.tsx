@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from 'next-themes';
 import { ConfirmProvider } from '@/components/app/form';
+import { OfflineNotice } from '@/components/app/offline';
+import { ThemeColorSync } from '@/components/app/theme';
 import { LoadingRows } from '@/components/app/page';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider } from '@/lib/auth';
+import { registerServiceWorker } from '@/lib/pwa';
 import Home from '@/pages/Home';
 import './index.css';
 
@@ -17,9 +20,12 @@ const BookingPaid = lazy(() => import('@/pages/BookingPaid'));
 const Brand = lazy(() => import('@/pages/Brand'));
 const Setup = lazy(() => import('@/pages/Setup'));
 
+registerServiceWorker();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} storageKey="danest-theme">
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="danest-theme">
+      <ThemeColorSync />
       <TooltipProvider delayDuration={300}>
         <BrowserRouter>
           <AuthProvider>
@@ -39,6 +45,7 @@ createRoot(document.getElementById('root')!).render(
           </AuthProvider>
         </BrowserRouter>
         <Toaster position="bottom-right" richColors closeButton />
+        <OfflineNotice />
       </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,

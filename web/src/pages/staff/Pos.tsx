@@ -1,5 +1,5 @@
-import { Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronRight, Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CHARGE_LABELS, CHARGE_METHODS, type ChargeMethod } from '../../../../shared/constants';
 import { Field, SelectField, VoidButton } from '@/components/app/form';
@@ -45,6 +45,7 @@ export default function Pos() {
   const [guest, setGuest] = useState('');
   const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(method === 'room' ? '/inhouse' : null);
   const { busy, error, setError, submit } = useSubmit();
+  const orderRef = useRef<HTMLDivElement>(null);
 
   const list = useMemo(() => (products.data ?? []).filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(q.toLowerCase())), [products.data, cat, q]);
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
@@ -127,7 +128,7 @@ export default function Pos() {
           )}
         </div>
 
-        <Card className="gap-0 py-0 shadow-xs lg:sticky lg:top-20">
+        <Card ref={orderRef} className="scroll-mt-20 gap-0 py-0 shadow-xs lg:sticky lg:top-20">
           <CardHeader className="flex flex-row items-center justify-between border-b px-5 py-4 [.border-b]:pb-4">
             <CardTitle className="text-sm">Current order {count > 0 && <span className="text-muted-foreground">· {count} item{count > 1 ? 's' : ''}</span>}</CardTitle>
             {lines.length > 0 && (
@@ -184,6 +185,19 @@ export default function Pos() {
         </Card>
       </div>
 
+      {/* On a phone the order sits below the item list: keep the total and checkout one tap away. */}
+      {count > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+          <Button size="lg" className="h-12 w-full justify-between text-base" onClick={() => orderRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            <span>
+              {count} item{count > 1 ? 's' : ''} · {naira(total)}
+            </span>
+            <span className="flex items-center gap-1">
+              Checkout <ChevronRight />
+            </span>
+          </Button>
+        </div>
+      )}
       <h2 className="mb-3 text-sm font-semibold">Today's till</h2>
       {till.data && (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">

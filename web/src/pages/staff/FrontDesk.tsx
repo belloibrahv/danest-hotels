@@ -70,7 +70,7 @@ export default function FrontDesk() {
       <div className="space-y-6">
         {floors.map((f) => (
           <Section key={f} title={floorName(f)} description={`${data.filter((r) => r.floor === f).length} rooms`}>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(136px,1fr))] gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))] sm:gap-3">
               {data
                 .filter((r) => r.floor === f)
                 .map((r) => (
@@ -87,8 +87,8 @@ export default function FrontDesk() {
                       <span className="font-mono text-xl font-semibold">{r.number}</span>
                       {r.arriving_today > 0 && r.status !== 'occupied' && <StatusPill tone="brand" dot={false}>Arrival</StatusPill>}
                     </div>
-                    <span className="text-xs text-muted-foreground">{r.room_type}</span>
-                    <div className="mt-auto">
+                    <span className="max-w-full truncate text-xs text-muted-foreground">{r.room_type}</span>
+                    <div className="mt-auto w-full min-w-0">
                       {r.status === 'occupied' ? (
                         <>
                           <div className="flex items-center gap-1.5 text-sm font-medium">

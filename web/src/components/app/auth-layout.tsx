@@ -1,14 +1,18 @@
 import type { ReactNode } from 'react';
+import { ThemeMenu } from './theme';
 
 /** Split layout for sign-in and setup: the form, and a calm brand panel with the building. */
 export function AuthLayout({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="grid min-h-svh lg:grid-cols-[1fr_1.1fr]">
       <div className="flex flex-col p-6 md:p-10">
-        <a href="/" className="flex items-center gap-2.5 self-start">
-          <img src="/brand/crest-128.png" alt="" className="size-8 rounded-full ring-1 ring-border" />
-          <span className="text-sm font-semibold">Danest Hotel &amp; Suites</span>
-        </a>
+        <div className="flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2.5">
+            <img src="/brand/crest-128.png" alt="" className="size-8 rounded-full ring-1 ring-border" />
+            <span className="text-sm font-semibold">Danest Hotel &amp; Suites</span>
+          </a>
+          <ThemeMenu className="-mr-2" />
+        </div>
         <div className="flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-sm">{children}</div>
         </div>

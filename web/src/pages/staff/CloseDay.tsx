@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, Lock, LockOpen, SprayCan } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Field, MoneyInput } from '@/components/app/form';
@@ -107,43 +107,41 @@ export default function CloseDay() {
               {open === 0 && data.checks.unpaid.length === 0 ? (
                 <EmptyState icon={CheckCircle2} title="All clear" className="py-8">All arrivals are in and no one is past their departure date.</EmptyState>
               ) : (
-                <Table>
-                  <TableBody>
-                    {data.checks.no_shows.map((n) => (
-                      <TableRow key={`n${n.id}`}>
-                        <TableCell className="pl-5"><StatusPill tone="warning">Didn't arrive</StatusPill></TableCell>
-                        <TableCell>
-                          <div className="font-medium">{n.guest_name}</div>
-                          <div className="text-xs text-muted-foreground">{n.room_type} · due {fmtDate(n.check_in)}</div>
-                        </TableCell>
-                        <TableCell className="pr-5 text-right whitespace-nowrap">
+                <ul className="divide-y">
+                  {data.checks.no_shows.map((n) => (
+                    <CheckRow
+                      key={`n${n.id}`}
+                      pill={<StatusPill tone="warning">Didn't arrive</StatusPill>}
+                      name={n.guest_name}
+                      detail={`${n.room_type} · due ${fmtDate(n.check_in)}`}
+                      actions={
+                        <>
                           <Button variant="ghost" size="sm" onClick={() => desk.openReservation(n.id)}>Open</Button>
                           <Button variant="outline" size="sm" onClick={() => noShow(n.id)}>No-show</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {data.checks.overdue.map((o) => (
-                      <TableRow key={`o${o.id}`}>
-                        <TableCell className="pl-5"><StatusPill tone="danger">Past departure</StatusPill></TableCell>
-                        <TableCell>
-                          <div className="font-medium">{o.guest_name}</div>
-                          <div className="text-xs text-muted-foreground">Room {o.room_number} · due out {fmtDate(o.check_out)}{o.balance > 0 ? ` · owes ${naira(o.balance)}` : ''}</div>
-                        </TableCell>
-                        <TableCell className="pr-5 text-right"><Button variant="outline" size="sm" onClick={() => desk.openReservation(o.id)}>Check out or extend</Button></TableCell>
-                      </TableRow>
-                    ))}
-                    {data.checks.unpaid.map((u) => (
-                      <TableRow key={`u${u.id}`}>
-                        <TableCell className="pl-5"><StatusPill>Owes</StatusPill></TableCell>
-                        <TableCell>
-                          <div className="font-medium">{u.guest_name}</div>
-                          <div className="text-xs text-muted-foreground">Room {u.room_number} · in house · {naira(u.balance)} on the bill</div>
-                        </TableCell>
-                        <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" onClick={() => desk.openReservation(u.id)}>Open bill</Button></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </>
+                      }
+                    />
+                  ))}
+                  {data.checks.overdue.map((o) => (
+                    <CheckRow
+                      key={`o${o.id}`}
+                      pill={<StatusPill tone="danger">Past departure</StatusPill>}
+                      name={o.guest_name}
+                      detail={`Room ${o.room_number} · due out ${fmtDate(o.check_out)}${o.balance > 0 ? ` · owes ${naira(o.balance)}` : ''}`}
+                      actions={<Button variant="outline" size="sm" onClick={() => desk.openReservation(o.id)}>Check out or extend</Button>}
+                    />
+                  ))}
+                  {/* Guests past departure are already listed above, with what they owe. */}
+                  {data.checks.unpaid.filter((u) => !data.checks.overdue.some((o) => o.id === u.id)).map((u) => (
+                    <CheckRow
+                      key={`u${u.id}`}
+                      pill={<StatusPill>Owes</StatusPill>}
+                      name={u.guest_name}
+                      detail={`Room ${u.room_number} · in house · ${naira(u.balance)} on the bill`}
+                      actions={<Button variant="ghost" size="sm" onClick={() => desk.openReservation(u.id)}>Open bill</Button>}
+                    />
+                  ))}
+                </ul>
               )}
               {data.checks.dirty_rooms > 0 && (
                 <div className="flex items-center gap-2 border-t px-5 py-3 text-sm text-muted-foreground">
@@ -275,5 +273,19 @@ function Reopen({ open, onClose, onDone }: { open: boolean; onClose: () => void;
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** One thing to sort before closing. On a phone the actions wrap under the name instead of scrolling away. */
+function CheckRow({ pill, name, detail, actions }: { pill: ReactNode; name: string; detail: string; actions: ReactNode }) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
+      <div className="w-32 shrink-0">{pill}</div>
+      <div className="min-w-0 flex-[1_1_12rem]">
+        <div className="truncate font-medium">{name}</div>
+        <div className="text-xs text-muted-foreground">{detail}</div>
+      </div>
+      <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
+    </li>
   );
 }

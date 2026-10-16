@@ -1,6 +1,7 @@
 import { Menu } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { ThemeMenu, ThemeSwitch } from '@/components/app/theme';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useHotel } from '@/lib/hotel';
@@ -41,6 +42,7 @@ export function SiteHeader() {
           <Link to="/booking" className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
             Manage booking
           </Link>
+          <ThemeMenu />
         </nav>
         <Button asChild className="ml-auto md:ml-2">
           <a href="/#book">Book a room</a>
@@ -65,6 +67,10 @@ export function SiteHeader() {
                 Manage booking
               </Link>
             </nav>
+            <div className="mt-auto space-y-2 border-t p-4">
+              <div className="text-xs font-medium text-muted-foreground">Appearance</div>
+              <ThemeSwitch />
+            </div>
           </SheetContent>
         </Sheet>
       </div>

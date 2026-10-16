@@ -1,4 +1,5 @@
 import { ArrowRight, Check } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Section } from './page';
 import { Progress } from '@/components/ui/progress';
@@ -28,17 +29,31 @@ const STEPS: [keyof Checklist, string, string, string][] = [
 /** Shown on the owner's dashboard until the hotel is fully set up. */
 export function SetupChecklist() {
   const { data } = useApi<Checklist>('/setup/checklist');
+  const [showDone, setShowDone] = useState(false);
   if (!data) return null;
   const done = STEPS.filter(([k]) => data[k]).length;
   if (done === STEPS.length) return null;
+  // What is left comes first; finished steps fold away so the day's work stays on screen.
+  const steps = showDone ? STEPS : STEPS.filter(([k]) => !data[k]);
   return (
-    <Section title="Finish setting up" description={`${done} of ${STEPS.length} done. Everything starts empty, so every number is your hotel's real business.`} flush>
+    <Section
+      title="Finish setting up"
+      description={`${done} of ${STEPS.length} done. Everything starts empty, so every number is your hotel's real business.`}
+      action={
+        done > 0 && (
+          <button className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" onClick={() => setShowDone(!showDone)}>
+            {showDone ? 'Hide done' : `Show ${done} done`}
+          </button>
+        )
+      }
+      flush
+    >
       <Progress value={(done / STEPS.length) * 100} className="h-1 rounded-none" />
       <ul className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-y-0">
-        {STEPS.map(([k, title, text, to]) => (
+        {steps.map(([k, title, text, to]) => (
           <li key={k} className="sm:border-b sm:odd:border-r">
             <Link to={to} className={cn('group flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50', data[k] && 'opacity-60')}>
-              <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-full border', data[k] && 'border-success bg-success text-white')}>{data[k] && <Check className="size-3.5" />}</span>
+              <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-full border', data[k] && 'border-success bg-success text-background')}>{data[k] && <Check className="size-3.5" />}</span>
               <span className="min-w-0 flex-1">
                 <span className={cn('block text-sm font-medium', data[k] && 'line-through')}>{title}</span>
                 <span className="block truncate text-xs text-muted-foreground">{text}</span>

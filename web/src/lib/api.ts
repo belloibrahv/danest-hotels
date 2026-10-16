@@ -8,12 +8,18 @@ export class ApiError extends Error {
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
   const method = opts.method ?? (opts.body !== undefined ? 'POST' : 'GET');
-  const res = await fetch(`/api${path}`, {
-    method,
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'x-danest-request': '1' },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-danest-request': '1' },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    // No answer at all: the connection dropped. Nothing was saved, so say so plainly.
+    throw new ApiError(0, navigator.onLine ? 'Could not reach the hotel system. Check the connection and try again.' : "You're offline. Nothing was saved. Try again when the connection is back.");
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/') && !location.pathname.endsWith('/login')) {

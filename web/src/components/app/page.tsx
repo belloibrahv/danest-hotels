@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils';
 export function PageHeader({ title, description, actions, eyebrow }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-end gap-x-6 gap-y-3">
-      <div className="min-w-0 flex-1">
+      {/* The title keeps at least 16rem; on a phone the actions drop below it instead of squeezing it. */}
+      <div className="min-w-0 flex-[1_1_16rem]">
         {eyebrow && <div className="mb-1 text-xs font-medium text-muted-foreground">{eyebrow}</div>}
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}

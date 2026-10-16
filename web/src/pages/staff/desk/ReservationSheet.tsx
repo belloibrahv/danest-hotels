@@ -237,7 +237,7 @@ function Body({ id }: { id: number }) {
                   value={roomId}
                   onChange={setRoomId}
                   placeholder={assignRooms.length ? 'Choose a room' : 'No free room of this type'}
-                  options={assignRooms.map((x) => ({ value: String(x.id), label: `Room ${x.number}${x.status !== 'available' ? ` · ${x.status}` : ''}` }))}
+                  options={assignRooms.map((x) => ({ value: String(x.id), label: `Room ${x.number}${r.check_in <= t && x.status !== 'available' ? ` · ${x.status === 'cleaning' ? 'being cleaned' : x.status}` : ''}` }))}
                 />
               </Field>
               <div className="flex flex-wrap gap-2">

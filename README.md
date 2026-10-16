@@ -30,6 +30,8 @@ One system that runs the hotel the way the owner described it:
 | **Online deposits** | Paystack hosted checkout from the website and Manage booking. Payments are verified on the server, webhooks are signature-checked, each payment is recorded exactly once, and a paid deposit confirms the booking if a room is still free (otherwise the money is kept on the request for the front desk) |
 | **Guest messages** | Confirmation, reminder, balance and thank-you messages from each reservation. Sent by SMS when Termii is connected, otherwise opened ready to send on WhatsApp. Every message is logged |
 | **Interface** | shadcn/ui on Tailwind CSS v4 (Radix), Geist type, light and dark mode, collapsible sidebar, ⌘K command palette, side sheets for reservations, guests and companies, recharts charts with a palette checked for colour-blindness. Design language at `/brand` |
+| **App & devices** | Installable as an app on the reception PC, a tablet or a housekeeper's phone (Install Danest app in the account menu; Share → Add to Home Screen on iPhone), with shortcuts to the room board, till, housekeeping and closing the day. Opens instantly and still loads on a weak connection; says clearly when offline so nobody thinks something was saved. Guest, money and staff data is never stored on the device. New versions are offered with a Reload prompt, never forced mid-task |
+| **Light, dark or automatic** | Follows the phone or computer's setting by default; anyone can pick Light, Dark or Match device from the header. Printed invoices are always dark ink on white. Every screen is laid out for phones, tablets and desktops, and an open reservation or guest has its own link (shareable, survives a refresh, closed by the back gesture) |
 
 ---
 

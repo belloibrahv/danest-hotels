@@ -226,7 +226,7 @@ export default function Dashboard() {
     return (
       <>
         {header}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <StatCard icon={BedDouble} label="Occupancy tonight" value={pct(ops.occupancy)} hint={`${ops.rooms.occupied} of ${ops.rooms.sellable} rooms`} />
           <StatCard icon={CalendarClock} label="Arrivals today" value={ops.arrivals} />
           <StatCard icon={LogOut} label="Departures today" value={ops.departures} />
@@ -266,7 +266,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard icon={Coins} label="Earned today" value={nairaShort(today.totalRevenue)} hint={`Rooms ${nairaShort(today.revenue[0].amount)} · Bar ${nairaShort(today.revenue[1].amount + today.revenue[2].amount)}`} />
         <StatCard icon={Wallet} label="Collected today" value={nairaShort(collectedToday.total)} hint={`Cash ${nairaShort(collectedToday.byMethod.cash ?? 0)} · Transfer ${nairaShort(collectedToday.byMethod.transfer ?? 0)} · POS ${nairaShort(collectedToday.byMethod.pos ?? 0)}`} />
         <StatCard icon={LineChart} label="Profit this month" value={<span className={month.netProfit < 0 ? 'text-destructive' : ''}>{nairaShort(month.netProfit)}</span>} hint={`${pct(margin)} margin on ${nairaShort(month.totalRevenue)}`} />
