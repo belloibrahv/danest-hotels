@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
+import { CHARGE_METHODS, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
+import { inHouse } from './inventory.ts';
+import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
 import { all, audit, get, run } from '../db.ts';
 import { HttpError, addDays, bad, body, date, daysBetween, h, int, oneOf, range, str, today } from '../lib.ts';
@@ -14,8 +16,9 @@ finance.get(
   h((req, res) => {
     const { from, to } = range(req);
     const rows = all(
-      `SELECT f.id, f.facility, f.item, f.customer, f.amount, f.method, f.date, u.name AS recorded_by
+      `SELECT f.id, f.facility, f.item, COALESCE(f.customer, g.name) AS customer, f.amount, f.method, f.date, u.name AS recorded_by, rm.number AS room_number
          FROM facility_income f LEFT JOIN users u ON u.id = f.recorded_by
+         LEFT JOIN reservations r ON r.id = f.reservation_id LEFT JOIN rooms rm ON rm.id = r.room_id LEFT JOIN guests g ON g.id = r.guest_id
         WHERE f.date BETWEEN ? AND ? ORDER BY f.date DESC, f.id DESC LIMIT 500`,
       from,
       to,
@@ -35,12 +38,16 @@ finance.post(
     const item = str(b, 'item', { max: 120 });
     const customer = str(b, 'customer', { max: 120, optional: true });
     const amount = int(b, 'amount', { min: 1, max: 50_000_000 });
-    const method = oneOf(b, 'method', PAYMENT_METHODS);
+    const method = oneOf(b, 'method', CHARGE_METHODS);
     // Front desk records today's takings only; back-dating is a manager decision.
-    const when = user.role === 'manager' ? date(b, 'date', today()) : today();
+    const when = user.role === 'manager' && method !== 'room' ? date(b, 'date', today()) : today();
     if (when > today()) throw bad('Date cannot be in the future');
-    const { id } = run('INSERT INTO facility_income (facility, item, customer, amount, method, date, recorded_by) VALUES (?,?,?,?,?,?,?)', facility, item, customer || null, amount, method, when, user.id);
-    audit(user.id, 'create', 'facility_income', id, { facility, amount });
+    const reservationId = method === 'room' ? inHouse(b.reservation_id) : null;
+    const { id } = run(
+      'INSERT INTO facility_income (facility, item, customer, amount, method, reservation_id, date, recorded_by) VALUES (?,?,?,?,?,?,?,?)',
+      facility, item, customer || null, amount, method, reservationId, when, user.id,
+    );
+    audit(user.id, 'create', 'facility_income', id, { facility, amount, reservation_id: reservationId ?? undefined });
     res.status(201).json({ id });
   }),
 );
@@ -101,9 +108,61 @@ finance.delete(
 
 type Money = Record<string, number>;
 
+/**
+ * Room revenue is earned night by night (the way a night audit posts it), not when cash arrives:
+ * each night a guest is in house earns that stay's nightly rate. Future nights don't count yet.
+ */
+export function roomNightsByDay(from: string, to: string) {
+  return all<{ date: string; nights: number; revenue: number }>(
+    `WITH RECURSIVE d(day) AS (SELECT ? UNION ALL SELECT date(day, '+1 day') FROM d WHERE day < ?)
+     SELECT d.day AS date, COUNT(r.id) AS nights, COALESCE(SUM(r.rate), 0) AS revenue
+       FROM d LEFT JOIN reservations r
+         ON r.check_in <= d.day AND r.check_out > d.day AND r.status IN ('checked_in','checked_out') AND d.day <= ?
+      GROUP BY d.day ORDER BY d.day`,
+    from,
+    to,
+    today(),
+  );
+}
+
+/** The three numbers every hotel owner and investor asks for. */
+export function kpis(from: string, to: string) {
+  const nightsByDay = roomNightsByDay(from, to);
+  const elapsed = nightsByDay.filter((d) => d.date <= today()).length;
+  const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms')!.n;
+  const sold = nightsByDay.reduce((a, d) => a + d.nights, 0);
+  const revenue = nightsByDay.reduce((a, d) => a + d.revenue, 0);
+  const available = rooms * elapsed;
+  return {
+    roomNightsSold: sold,
+    roomNightsAvailable: available,
+    occupancy: available ? sold / available : 0,
+    adr: sold ? Math.round(revenue / sold) : 0, // average daily rate: what a sold room earns per night
+    revpar: available ? Math.round(revenue / available) : 0, // revenue per available room per night
+  };
+}
+
+/** Money actually received, by how it was paid. Room-charged sales aren't cash until the folio is settled. */
+export function collections(from: string, to: string) {
+  const rows = all<{ source: string; method: string; v: number }>(
+    `SELECT 'Room folios' AS source, method, SUM(amount) v FROM payments WHERE date BETWEEN ?1 AND ?2 GROUP BY method
+     UNION ALL SELECT 'Bar & shop', method, SUM(total) FROM sales WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method
+     UNION ALL SELECT 'Gym, pool & lounge', method, SUM(amount) FROM facility_income WHERE method <> 'room' AND date BETWEEN ?1 AND ?2 GROUP BY method`,
+    from,
+    to,
+  );
+  const byMethod = { cash: 0, transfer: 0, pos: 0 } as Money;
+  const bySource: Money = {};
+  for (const r of rows) {
+    byMethod[r.method] = (byMethod[r.method] ?? 0) + r.v;
+    bySource[r.source] = (bySource[r.source] ?? 0) + r.v;
+  }
+  return { byMethod, bySource, total: rows.reduce((a, r) => a + r.v, 0) };
+}
+
 export function profitAndLoss(from: string, to: string) {
   const revenue: Record<StreamKey, number> = { rooms: 0, drinks: 0, confectionery: 0, gym: 0, pool: 0, lounge: 0 };
-  revenue.rooms = get<{ v: number }>('SELECT COALESCE(SUM(amount),0) v FROM payments WHERE date BETWEEN ? AND ?', from, to)!.v;
+  revenue.rooms = roomNightsByDay(from, to).reduce((a, d) => a + d.revenue, 0);
 
   const cogs: Money = { drinks: 0, confectionery: 0 };
   for (const r of all<{ category: 'drinks' | 'confectionery'; sales: number; cost: number }>(
@@ -144,21 +203,22 @@ export function profitAndLoss(from: string, to: string) {
     operating,
     totalOperating,
     netProfit: grossProfit - totalOperating,
+    kpis: kpis(from, to),
+    collections: collections(from, to),
     stockPurchases: get<{ v: number }>('SELECT COALESCE(SUM(total),0) v FROM purchases WHERE date BETWEEN ? AND ?', from, to)!.v,
     stockValue: get<{ v: number }>('SELECT COALESCE(SUM(stock * avg_cost),0) v FROM products WHERE active = 1')!.v,
   };
 }
 
 function dailySeries(from: string, to: string) {
-  const days = new Map<string, { date: string; rooms: number; bar: number; facilities: number; expenses: number }>();
-  for (let d = from; d <= to; d = addDays(d, 1)) days.set(d, { date: d, rooms: 0, bar: 0, facilities: 0, expenses: 0 });
-  const add = (sql: string, key: 'rooms' | 'bar' | 'facilities' | 'expenses') => {
+  const days = new Map<string, { date: string; rooms: number; bar: number; facilities: number; expenses: number; occupied: number }>();
+  for (const n of roomNightsByDay(from, to)) days.set(n.date, { date: n.date, rooms: n.revenue, occupied: n.nights, bar: 0, facilities: 0, expenses: 0 });
+  const add = (sql: string, key: 'bar' | 'facilities' | 'expenses') => {
     for (const r of all<{ date: string; v: number }>(sql, from, to)) {
       const day = days.get(r.date);
       if (day) day[key] = r.v;
     }
   };
-  add('SELECT date, SUM(amount) v FROM payments WHERE date BETWEEN ? AND ? GROUP BY date', 'rooms');
   add('SELECT date, SUM(total) v FROM sales WHERE date BETWEEN ? AND ? GROUP BY date', 'bar');
   add('SELECT date, SUM(amount) v FROM facility_income WHERE date BETWEEN ? AND ? GROUP BY date', 'facilities');
   add('SELECT date, SUM(amount) v FROM expenses WHERE date BETWEEN ? AND ? GROUP BY date', 'expenses');
@@ -173,7 +233,12 @@ finance.get(
     const days = daysBetween(from, to) + 1;
     const prevTo = addDays(from, -1);
     const prev = profitAndLoss(addDays(prevTo, -(days - 1)), prevTo);
-    res.json({ ...profitAndLoss(from, to), previous: { from: prev.from, to: prev.to, totalRevenue: prev.totalRevenue, netProfit: prev.netProfit }, daily: days <= 120 ? dailySeries(from, to) : [] });
+    res.json({
+      ...profitAndLoss(from, to),
+      previous: { from: prev.from, to: prev.to, totalRevenue: prev.totalRevenue, netProfit: prev.netProfit, kpis: prev.kpis },
+      daily: days <= 120 ? dailySeries(from, to) : [],
+      rooms: get<{ n: number }>('SELECT COUNT(*) n FROM rooms')!.n,
+    });
   }),
 );
 
@@ -197,6 +262,8 @@ finance.get(
     rows.push(['Cost of sales', 'Total cost of sales', p.totalCostOfSales], ['', 'Gross profit', p.grossProfit]);
     for (const r of p.operating) rows.push(['Operating expenses', r.label, r.amount]);
     rows.push(['Operating expenses', 'Total operating expenses', p.totalOperating], ['', 'Net profit', p.netProfit], [], ['Memo', 'Stock purchased in period', p.stockPurchases], ['Memo', 'Closing stock value (at cost)', p.stockValue]);
+    rows.push([], ['KPI', 'Room-nights sold', p.kpis.roomNightsSold], ['KPI', 'Occupancy %', Math.round(p.kpis.occupancy * 1000) / 10], ['KPI', 'ADR (average daily rate)', p.kpis.adr], ['KPI', 'RevPAR', p.kpis.revpar]);
+    rows.push([], ['Collected', 'Cash', p.collections.byMethod.cash], ['Collected', 'Bank transfer', p.collections.byMethod.transfer], ['Collected', 'POS / card', p.collections.byMethod.pos], ['Collected', 'Total collected', p.collections.total]);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="danest-pnl-${from}-to-${to}.csv"`);
     res.send('﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'));
@@ -223,9 +290,25 @@ finance.get(
       requests: get<{ n: number }>("SELECT COUNT(*) n FROM reservations WHERE status = 'pending'")!.n,
       balances: get<{ n: number; v: number }>(
         `SELECT COUNT(*) n, COALESCE(SUM(bal),0) v FROM (
-           SELECT r.total - COALESCE((SELECT SUM(amount) FROM payments p WHERE p.reservation_id = r.id),0) bal
-             FROM reservations r WHERE r.status = 'checked_in') WHERE bal > 0`,
+           SELECT r.total + ${CHARGES_SQL} - ${PAID_SQL} bal FROM reservations r WHERE r.status = 'checked_in') WHERE bal > 0`,
       )!,
+      // "On the books": how full the next two weeks already are. Requests are shown separately — they aren't promised yet.
+      forecast: all<{ date: string; booked: number; requested: number }>(
+        `WITH RECURSIVE d(day) AS (SELECT ? UNION ALL SELECT date(day, '+1 day') FROM d WHERE day < date(?, '+13 day'))
+         SELECT d.day AS date,
+                SUM(CASE WHEN r.status IN ('confirmed','checked_in') THEN 1 ELSE 0 END) AS booked,
+                SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS requested
+           FROM d LEFT JOIN reservations r ON r.check_in <= d.day AND r.check_out > d.day AND r.status IN ('pending','confirmed','checked_in')
+          GROUP BY d.day ORDER BY d.day`,
+        t,
+        t,
+      ),
+      arrivalsList: all(
+        `SELECT r.id, g.name AS guest_name, g.vip, t.name AS room_type, rm.number AS room_number, r.status, r.nights
+           FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id LEFT JOIN rooms rm ON rm.id = r.room_id
+          WHERE r.check_in = ? AND r.status IN ('confirmed','pending') ORDER BY g.vip DESC, g.name LIMIT 12`,
+        t,
+      ),
     };
     if (req.user?.role !== 'manager') return res.json({ ops });
 
@@ -235,6 +318,7 @@ finance.get(
       ops,
       today: profitAndLoss(t, t),
       month: profitAndLoss(monthStart, t),
+      collectedToday: collections(t, t),
       last30: dailySeries(from30, t),
       lowStock: all('SELECT id, name, stock, reorder_level, unit FROM products WHERE active = 1 AND stock <= reorder_level ORDER BY stock * 1.0 / MAX(reorder_level,1) LIMIT 8'),
     });

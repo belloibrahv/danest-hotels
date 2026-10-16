@@ -44,16 +44,51 @@ publicApi.post(
       if ((availabilityByType(checkIn, checkOut).get(typeId) ?? 0) < 1) {
         throw new HttpError(409, `The ${type.name} is fully booked for those dates. Please try other dates or call us.`);
       }
-      const guestId = run('INSERT INTO guests (name, phone, email) VALUES (?,?,?)', name, phone, email || null).id;
+      // Link to an existing profile by phone, but never let an anonymous form overwrite it.
+      const existing = get<{ id: number; name: string }>('SELECT id, name FROM guests WHERE phone = ? ORDER BY id LIMIT 1', phone);
+      const guestId = existing?.id ?? run('INSERT INTO guests (name, phone, email) VALUES (?,?,?)', name, phone, email || null).id;
+      const bookedAs = existing && existing.name.toLowerCase() !== name.toLowerCase() ? `Booked online as “${name}”. ` : '';
       const ref = code('DH');
       const { id } = run(
         `INSERT INTO reservations (code, guest_id, room_type_id, check_in, check_out, nights, rate, total, adults, status, source, notes)
          VALUES (?,?,?,?,?,?,?,?,?,'pending','website',?)`,
-        ref, guestId, typeId, checkIn, checkOut, nights, type.rate, type.rate * nights, adults, notes || null,
+        ref, guestId, typeId, checkIn, checkOut, nights, type.rate, type.rate * nights, adults, (bookedAs + notes).trim() || null,
       );
       audit(null, 'booking_request', 'reservation', id);
       return { code: ref, nights, total: type.rate * nights, room_type: type.name };
     });
     res.status(201).json(result);
+  }),
+);
+
+/**
+ * "Manage my booking": a guest looks up their stay with the reference and the phone number used.
+ * POST keeps the phone number out of URLs and logs. Answers are identical for "wrong code" and "wrong phone".
+ */
+publicApi.post(
+  '/booking-lookup',
+  h((req, res) => {
+    rateLimit(`lookup:${req.ip}`, 10, 60 * 60_000);
+    const b = body(req);
+    const ref = str(b, 'code', { max: 12 }).toUpperCase().replace(/\s/g, '');
+    const phone = str(b, 'phone', { max: 20, pattern: PHONE_RE }).replace(/\D/g, '');
+    const r = get<{ code: string; status: string; check_in: string; check_out: string; nights: number; total: number; room_type: string; guest_phone: string; guest_name: string; paid: number }>(
+      `SELECT r.code, r.status, r.check_in, r.check_out, r.nights, r.total, t.name AS room_type, g.phone AS guest_phone, g.name AS guest_name,
+              COALESCE((SELECT SUM(amount) FROM payments p WHERE p.reservation_id = r.id), 0) AS paid
+         FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id WHERE r.code = ?`,
+      ref,
+    );
+    if (!r || r.guest_phone.replace(/\D/g, '') !== phone) throw new HttpError(404, "We couldn't find a booking with that reference and phone number.");
+    res.json({
+      code: r.code,
+      status: r.status,
+      check_in: r.check_in,
+      check_out: r.check_out,
+      nights: r.nights,
+      room_type: r.room_type,
+      total: r.total,
+      paid: r.paid,
+      first_name: r.guest_name.split(' ')[0],
+    });
   }),
 );

@@ -186,6 +186,107 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 db.exec(SCHEMA);
 
+/**
+ * Forward-only migrations, tracked with PRAGMA user_version. Never edit a shipped
+ * migration — append a new one. Each runs in its own transaction.
+ */
+const MIGRATIONS: string[] = [
+  // 1 — folios, guest profiles, two-factor sign-in, session metadata
+  `
+  ALTER TABLE guests ADD COLUMN vip INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE guests ADD COLUMN notes TEXT;
+  ALTER TABLE guests ADD COLUMN id_type TEXT;
+  ALTER TABLE guests ADD COLUMN id_number TEXT;
+  ALTER TABLE guests ADD COLUMN address TEXT;
+  CREATE INDEX IF NOT EXISTS idx_guests_phone ON guests(phone);
+
+  ALTER TABLE reservations ADD COLUMN checked_in_at TEXT;
+  ALTER TABLE reservations ADD COLUMN checked_out_at TEXT;
+
+  CREATE TABLE sales_v2 (
+    id INTEGER PRIMARY KEY,
+    receipt_no TEXT NOT NULL UNIQUE,
+    date TEXT NOT NULL,
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos','room')),
+    reservation_id INTEGER REFERENCES reservations(id),
+    total INTEGER NOT NULL,
+    cost_total INTEGER NOT NULL,
+    staff_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((method = 'room') = (reservation_id IS NOT NULL))
+  );
+  INSERT INTO sales_v2 (id, receipt_no, date, method, total, cost_total, staff_id, created_at)
+    SELECT id, receipt_no, date, method, total, cost_total, staff_id, created_at FROM sales;
+  DROP TABLE sales;
+  ALTER TABLE sales_v2 RENAME TO sales;
+  CREATE INDEX idx_sales_date ON sales(date);
+  CREATE INDEX idx_sales_res ON sales(reservation_id);
+
+  CREATE TABLE facility_income_v2 (
+    id INTEGER PRIMARY KEY,
+    facility TEXT NOT NULL CHECK (facility IN ('gym','pool','lounge')),
+    item TEXT NOT NULL,
+    customer TEXT,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos','room')),
+    reservation_id INTEGER REFERENCES reservations(id),
+    date TEXT NOT NULL,
+    recorded_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((method = 'room') = (reservation_id IS NOT NULL))
+  );
+  INSERT INTO facility_income_v2 (id, facility, item, customer, amount, method, date, recorded_by, created_at)
+    SELECT id, facility, item, customer, amount, method, date, recorded_by, created_at FROM facility_income;
+  DROP TABLE facility_income;
+  ALTER TABLE facility_income_v2 RENAME TO facility_income;
+  CREATE INDEX idx_fac_date ON facility_income(date);
+  CREATE INDEX idx_fac_res ON facility_income(reservation_id);
+
+  ALTER TABLE users ADD COLUMN totp_secret TEXT;
+  ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN last_login_at TEXT;
+
+  CREATE TABLE recovery_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    used_at TEXT
+  );
+  CREATE TABLE mfa_challenges (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
+  );
+
+  ALTER TABLE sessions ADD COLUMN user_agent TEXT;
+  ALTER TABLE sessions ADD COLUMN ip TEXT;
+  ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
+  `,
+];
+
+{
+  const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    // Table rebuilds must not cascade deletes into child tables, so FKs are off for the duration.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(MIGRATIONS[v]);
+      const broken = db.prepare('PRAGMA foreign_key_check').all();
+      if (broken.length) throw new Error(`Migration ${v + 1} broke ${broken.length} foreign keys`);
+      db.exec(`PRAGMA user_version = ${v + 1}`);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+}
+
 /** Run fn inside a transaction; rolls back on any throw. Not re-entrant. */
 export function tx<T>(fn: () => T): T {
   db.exec('BEGIN IMMEDIATE');
@@ -199,18 +300,20 @@ export function tx<T>(fn: () => T): T {
   }
 }
 
-type Param = string | number | bigint | null | Uint8Array;
+type Value = string | number | bigint | null | Uint8Array;
+/** Positional values, or a single object of :named values. */
+type Param = Value | Record<string, Value>;
 
 export function all<T = Record<string, unknown>>(sql: string, ...params: Param[]): T[] {
-  return db.prepare(sql).all(...params) as T[];
+  return db.prepare(sql).all(...(params as never[])) as T[];
 }
 
 export function get<T = Record<string, unknown>>(sql: string, ...params: Param[]): T | undefined {
-  return db.prepare(sql).get(...params) as T | undefined;
+  return db.prepare(sql).get(...(params as never[])) as T | undefined;
 }
 
 export function run(sql: string, ...params: Param[]) {
-  const r = db.prepare(sql).run(...params);
+  const r = db.prepare(sql).run(...(params as never[]));
   return { id: Number(r.lastInsertRowid), changes: Number(r.changes) };
 }
 

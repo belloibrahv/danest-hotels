@@ -17,6 +17,21 @@ export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   pos: 'POS / card',
 };
 
+/** Ways a bar or facility sale can be settled: paid now, or posted to an in-house guest's room folio. */
+export const CHARGE_METHODS = [...PAYMENT_METHODS, 'room'] as const;
+export type ChargeMethod = (typeof CHARGE_METHODS)[number];
+export const CHARGE_LABELS: Record<ChargeMethod, string> = { ...PAYMENT_LABELS, room: 'Charge to room' };
+
+export const ID_TYPES = ['nin', 'passport', 'drivers_licence', 'voters_card', 'other'] as const;
+export type IdType = (typeof ID_TYPES)[number];
+export const ID_LABELS: Record<IdType, string> = {
+  nin: 'NIN slip / card',
+  passport: 'International passport',
+  drivers_licence: "Driver's licence",
+  voters_card: "Voter's card",
+  other: 'Other ID',
+};
+
 export const PRODUCT_CATEGORIES = ['drinks', 'confectionery'] as const;
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 

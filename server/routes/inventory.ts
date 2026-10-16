@@ -1,10 +1,18 @@
 import { Router } from 'express';
-import { PAYMENT_METHODS, PRODUCT_CATEGORIES } from '../../shared/constants.ts';
+import { CHARGE_METHODS, PRODUCT_CATEGORIES } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, bad, body, code, date, h, int, oneOf, range, str, today } from '../lib.ts';
 
 export const inventory = Router();
+
+/** A charge can only be posted to a guest who is in the building right now. */
+export function inHouse(raw: unknown): number {
+  const id = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(id) || id < 1) throw bad('Choose the guest room to charge');
+  if (!get("SELECT 1 FROM reservations WHERE id = ? AND status = 'checked_in'", id)) throw new HttpError(409, 'That guest is no longer checked in');
+  return id;
+}
 
 type Product = { id: number; name: string; price: number; avg_cost: number; stock: number; active: number };
 
@@ -107,9 +115,10 @@ inventory.post(
   h((req, res) => {
     const user = currentUser(req);
     const b = body(req);
-    const method = oneOf(b, 'method', PAYMENT_METHODS);
+    const method = oneOf(b, 'method', CHARGE_METHODS);
     const items = lines(b.items, () => ({}));
     const sale = tx(() => {
+      const reservationId = method === 'room' ? inHouse(b.reservation_id) : null;
       let total = 0;
       let cost = 0;
       const priced = items.map((l) => {
@@ -122,7 +131,11 @@ inventory.post(
         return { ...l, unit_price: p.price, unit_cost: p.avg_cost };
       });
       const receipt = code('RC');
-      const { id } = run('INSERT INTO sales (receipt_no, date, method, total, cost_total, staff_id) VALUES (?,?,?,?,?,?)', receipt, today(), method, total, cost, user.id);
+      const { id } = run(
+        'INSERT INTO sales (receipt_no, date, method, reservation_id, total, cost_total, staff_id) VALUES (?,?,?,?,?,?,?)',
+        receipt, today(), method, reservationId, total, cost, user.id,
+      );
+      if (reservationId) audit(user.id, 'room_charge', 'reservation', reservationId, { amount: total, receipt });
       for (const l of priced) {
         run('INSERT INTO sale_items (sale_id, product_id, qty, unit_price, unit_cost) VALUES (?,?,?,?,?)', id, l.product_id, l.qty, l.unit_price, l.unit_cost);
         run('UPDATE products SET stock = stock - ? WHERE id = ?', l.qty, l.product_id);
@@ -140,8 +153,9 @@ inventory.get(
     // Bar staff see today's till only; managers can look back.
     const { from, to } = req.user?.role === 'manager' ? range(req) : { from: today(), to: today() };
     const sales = all<{ id: number }>(
-      `SELECT s.id, s.receipt_no, s.date, s.created_at, s.method, s.total, u.name AS staff
+      `SELECT s.id, s.receipt_no, s.date, s.created_at, s.method, s.total, u.name AS staff, rm.number AS room_number
          FROM sales s LEFT JOIN users u ON u.id = s.staff_id
+         LEFT JOIN reservations r ON r.id = s.reservation_id LEFT JOIN rooms rm ON rm.id = r.room_id
         WHERE s.date BETWEEN ? AND ? ORDER BY s.id DESC LIMIT 300`,
       from,
       to,
@@ -157,7 +171,8 @@ inventory.get(
       `SELECT COUNT(*) AS count, COALESCE(SUM(total),0) AS total,
               COALESCE(SUM(CASE WHEN method='cash' THEN total END),0) AS cash,
               COALESCE(SUM(CASE WHEN method='transfer' THEN total END),0) AS transfer,
-              COALESCE(SUM(CASE WHEN method='pos' THEN total END),0) AS pos
+              COALESCE(SUM(CASE WHEN method='pos' THEN total END),0) AS pos,
+              COALESCE(SUM(CASE WHEN method='room' THEN total END),0) AS room
          FROM sales WHERE date BETWEEN ? AND ?`,
       from,
       to,

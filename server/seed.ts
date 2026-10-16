@@ -5,7 +5,7 @@
  *   npm run seed            # wipe and reload
  */
 import { hashPassword } from './auth.ts';
-import { db, get, run, tx } from './db.ts';
+import { all, db, get, run, tx } from './db.ts';
 import { addDays, today } from './lib.ts';
 
 const DEMO_PASSWORD = 'Danest@2026!';
@@ -108,7 +108,7 @@ export function seed() {
   const pwHash = hashPassword(DEMO_PASSWORD);
 
   tx(() => {
-    for (const t of ['audit_log', 'sessions', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'users', 'rate_limits']) {
+    for (const t of ['audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'reservations', 'guests', 'facility_income', 'expenses', 'products', 'rooms', 'room_types', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
@@ -125,7 +125,26 @@ export function seed() {
     // ----- reservations: walk each room's calendar -----
     const guestName = () => `${pick(FIRST)} ${pick(LAST)}`;
     const phone = () => `080${between(1, 9)}${String(between(0, 9999999)).padStart(7, '0')}`;
-    const insertGuest = (name: string) => run('INSERT INTO guests (name, phone, email) VALUES (?,?,?)', name, phone(), chance(0.5) ? `${name.split(' ')[0].toLowerCase()}${between(1, 99)}@gmail.com` : null).id;
+    const ID_KINDS = ['nin', 'nin', 'nin', 'drivers_licence', 'passport', 'voters_card'] as const;
+    const insertGuest = (name: string) => {
+      const hasId = chance(0.75);
+      const kind = pick(ID_KINDS);
+      const idNo = kind === 'nin' ? String(between(10000000000, 99999999999)) : kind === 'passport' ? `B${between(10000000, 99999999)}` : `${pick(['OY', 'LA', 'AB', 'FC'])}${between(100000, 999999)}`;
+      return run(
+        'INSERT INTO guests (name, phone, email, id_type, id_number, address) VALUES (?,?,?,?,?,?)',
+        name, phone(), chance(0.5) ? `${name.split(' ')[0].toLowerCase()}${between(1, 99)}@gmail.com` : null,
+        hasId ? kind : null, hasId ? idNo : null, hasId ? pick(['Bodija, Ibadan', 'Ikeja, Lagos', 'Wuse II, Abuja', 'Ring Road, Ibadan', 'Akure, Ondo', 'Lekki, Lagos', 'Osogbo, Osun']) : null,
+      ).id;
+    };
+    // Hotels live on repeat business: about a third of stays are returning guests.
+    const regulars: number[] = [];
+    const guestFor = () => {
+      if (regulars.length > 8 && chance(0.32)) return pick(regulars);
+      const id = insertGuest(guestName());
+      if (chance(0.25)) regulars.push(id);
+      return id;
+    };
+    const stays: { id: number; checkIn: string; checkOut: string; status: string }[] = [];
     const pay = (resId: number, amount: number, date: string, by: number) => {
       if (amount > 0) run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', resId, amount, method(), date, by);
     };
@@ -141,7 +160,7 @@ export function seed() {
           d = addDays(checkOut, between(1, 4));
           continue;
         }
-        const guestId = insertGuest(guestName());
+        const guestId = guestFor();
         const source = future ? pick(['phone', 'phone', 'website'] as const) : pick(['walk_in', 'walk_in', 'phone', 'phone', 'website'] as const);
         const status = checkOut <= T && !(checkOut === T && chance(0.4)) ? (chance(0.04) ? 'cancelled' : 'checked_out') : d <= T ? 'checked_in' : 'confirmed';
         if (room === maintenanceRoom && status === 'checked_in') {
@@ -152,10 +171,13 @@ export function seed() {
         const by = chance(0.6) ? deskId : desk2Id;
         const created = stamp(addDays(d, source === 'walk_in' ? 0 : -between(1, 10)), between(8, 20), between(0, 59));
         const resId = run(
-          `INSERT INTO reservations (code, guest_id, room_type_id, room_id, check_in, check_out, nights, rate, total, adults, status, source, created_by, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO reservations (code, guest_id, room_type_id, room_id, check_in, check_out, nights, rate, total, adults, status, source, created_by, created_at, checked_in_at, checked_out_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ref('DH'), guestId, room.typeId, room.id, d, checkOut, nights, room.rate, total, between(1, 2), status, source, by, created,
+          status === 'checked_in' || status === 'checked_out' ? stamp(d, between(13, 21), between(0, 59)).replace(' ', 'T') + '.000Z' : null,
+          status === 'checked_out' ? stamp(checkOut, between(9, 12), between(0, 59)).replace(' ', 'T') + '.000Z' : null,
         ).id;
+        if (status === 'checked_in' || status === 'checked_out') stays.push({ id: resId, checkIn: d, checkOut, status });
         if (status === 'checked_out') {
           if (chance(0.65)) pay(resId, total, d, by);
           else {
@@ -221,6 +243,11 @@ export function seed() {
       }
     };
 
+    const inHouseOn = (d: string) => {
+      const here = stays.filter((x) => x.checkIn <= d && x.checkOut > d);
+      return here.length ? pick(here).id : null;
+    };
+
     const pickProduct = () => {
       let x = rand() * totalWeight;
       for (const p of products) if ((x -= p.weight) <= 0) return p;
@@ -248,7 +275,11 @@ export function seed() {
           cost += p.avg * q;
         }
         const hour = d === T ? between(9, 12) : between(10, 23);
-        const saleId = run('INSERT INTO sales (receipt_no, date, method, total, cost_total, staff_id, created_at) VALUES (?,?,?,?,?,?,?)', ref('RC'), d, method(), total, cost, barId, stamp(d, hour, between(0, 59))).id;
+        const guest = chance(0.14) ? inHouseOn(d) : null;
+        const saleId = run(
+          'INSERT INTO sales (receipt_no, date, method, reservation_id, total, cost_total, staff_id, created_at) VALUES (?,?,?,?,?,?,?,?)',
+          ref('RC'), d, guest ? 'room' : method(), guest, total, cost, barId, stamp(d, hour, between(0, 59)),
+        ).id;
         for (const [p, q] of basket) {
           run('INSERT INTO sale_items (sale_id, product_id, qty, unit_price, unit_cost) VALUES (?,?,?,?,?)', saleId, p.id, q, p.price, p.avg);
           p.stock -= q;
@@ -256,8 +287,14 @@ export function seed() {
       }
 
       // ----- gym, pool, lounge -----
-      const fac = (facility: string, item: string, amount: number, customer: string | null = null) =>
-        run('INSERT INTO facility_income (facility, item, customer, amount, method, date, recorded_by, created_at) VALUES (?,?,?,?,?,?,?,?)', facility, item, customer, amount, method(), d, deskId, stamp(d, between(8, 20), between(0, 59)));
+      const fac = (facility: string, item: string, amount: number, customer: string | null = null) => {
+        // Hotel guests often put the pool or gym on their room bill.
+        const guest = !customer && facility !== 'lounge' && chance(0.25) ? inHouseOn(d) : null;
+        run(
+          'INSERT INTO facility_income (facility, item, customer, amount, method, reservation_id, date, recorded_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+          facility, item, customer, amount, guest ? 'room' : method(), guest, d, deskId, stamp(d, between(8, 20), between(0, 59)),
+        );
+      };
       const scale = d === T ? 0.5 : 1;
       for (let i = between(1, 5) * scale; i > 0; i--) fac('gym', 'Gym day pass', 3000);
       if (chance(0.18)) fac('gym', 'Gym monthly membership', 25000, guestName());
@@ -290,6 +327,23 @@ export function seed() {
     }
 
     for (const p of products) run('UPDATE products SET stock = ?, avg_cost = ? WHERE id = ?', p.stock, p.avg, p.id);
+
+    // Departed guests settled their bar and pool charges at check-out.
+    for (const x of stays.filter((x) => x.status === 'checked_out')) {
+      const charges = get<{ v: number }>(
+        'SELECT COALESCE((SELECT SUM(total) FROM sales WHERE reservation_id = ?1),0) + COALESCE((SELECT SUM(amount) FROM facility_income WHERE reservation_id = ?1),0) v',
+        x.id,
+      )!.v;
+      if (charges > 0) run('INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?,?,?,?)', x.id, charges, method(), x.checkOut, deskId);
+    }
+
+    // The best customers become VIPs, with the kind of notes a good front desk keeps.
+    const top = all<{ id: number }>(
+      `SELECT g.id FROM guests g JOIN reservations r ON r.guest_id = g.id WHERE r.status IN ('checked_in','checked_out')
+        GROUP BY g.id ORDER BY SUM(r.total) DESC LIMIT 6`,
+    );
+    const NOTES = ['Prefers a ground-floor room', 'Likes extra pillows; early riser', 'Corporate guest — sends company invoice', 'Always asks for room 302 if free', 'Allergic to groundnuts — tell the kitchen', 'Celebrates anniversary in December'];
+    top.forEach((g, i) => run('UPDATE guests SET vip = 1, notes = ? WHERE id = ?', NOTES[i], g.id));
     run("INSERT INTO audit_log (user_id, action, entity, detail) VALUES (?, 'seed', 'system', ?)", managerId, JSON.stringify({ from: START, to: T }));
   });
 

@@ -42,15 +42,43 @@ export function verifyPassword(password: string, stored: string): boolean {
 // Burn the same CPU for unknown usernames so response time doesn't reveal which accounts exist.
 const DUMMY_HASH = hashPassword(randomBytes(12).toString('hex'));
 
-export function checkCredentials(username: string, password: string): SessionUser | null {
-  const row = get<SessionUser & { password_hash: string; active: number }>(
-    'SELECT id, name, username, role, password_hash, active FROM users WHERE username = ?',
+export function checkCredentials(username: string, password: string): (SessionUser & { mfa: boolean }) | null {
+  const row = get<SessionUser & { password_hash: string; active: number; totp_enabled: number }>(
+    'SELECT id, name, username, role, password_hash, active, totp_enabled FROM users WHERE username = ?',
     username,
   );
   const ok = verifyPassword(password, row?.password_hash ?? DUMMY_HASH);
   if (!row || !ok || !row.active) return null;
-  return { id: row.id, name: row.name, username: row.username, role: row.role };
+  return { id: row.id, name: row.name, username: row.username, role: row.role, mfa: !!row.totp_enabled };
 }
+
+// ---------- second factor: a short-lived, single-purpose challenge between the two sign-in steps ----------
+
+const MFA_MINUTES = 5;
+
+export function createMfaChallenge(userId: number): string {
+  const token = randomBytes(32).toString('base64url');
+  run('DELETE FROM mfa_challenges WHERE expires_at < ? OR user_id = ?', new Date().toISOString(), userId);
+  run('INSERT INTO mfa_challenges (id, user_id, expires_at) VALUES (?,?,?)', sha256(token), userId, new Date(Date.now() + MFA_MINUTES * 60_000).toISOString());
+  return token;
+}
+
+/** Returns the user id if the challenge is live; counts the attempt; burns it after 5 tries. */
+export function useMfaChallenge(token: string): number | null {
+  if (typeof token !== 'string' || token.length > 100) return null;
+  const id = sha256(token);
+  const row = get<{ user_id: number; expires_at: string; attempts: number }>('SELECT user_id, expires_at, attempts FROM mfa_challenges WHERE id = ?', id);
+  if (!row || row.expires_at < new Date().toISOString() || row.attempts >= 5) {
+    if (row) run('DELETE FROM mfa_challenges WHERE id = ?', id);
+    return null;
+  }
+  run('UPDATE mfa_challenges SET attempts = attempts + 1 WHERE id = ?', id);
+  return row.user_id;
+}
+
+export const finishMfaChallenge = (token: string) => run('DELETE FROM mfa_challenges WHERE id = ?', sha256(token));
+
+export const hashCode = (code: string) => sha256(`recovery:${code.toUpperCase().replace(/[^A-Z0-9]/g, '')}`);
 
 export const passwordProblem = (pw: string) =>
   pw.length < 10 ? 'Password must be at least 10 characters' : pw.length > 128 ? 'Password is too long' : null;
@@ -59,11 +87,16 @@ export const passwordProblem = (pw: string) =>
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
-export function createSession(res: Response, userId: number) {
+export function createSession(req: Request, res: Response, userId: number) {
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_HOURS * 3600_000);
-  run('DELETE FROM sessions WHERE expires_at < ?', new Date().toISOString());
-  run('INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)', sha256(token), userId, expires.toISOString());
+  const now = new Date().toISOString();
+  run('DELETE FROM sessions WHERE expires_at < ?', now);
+  run(
+    'INSERT INTO sessions (id, user_id, expires_at, user_agent, ip, last_seen_at) VALUES (?,?,?,?,?,?)',
+    sha256(token), userId, expires.toISOString(), (req.get('user-agent') ?? '').slice(0, 200), req.ip ?? null, now,
+  );
+  run('UPDATE users SET last_login_at = ? WHERE id = ?', now, userId);
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
@@ -79,8 +112,15 @@ export function destroySession(req: Request, res: Response) {
   res.clearCookie(SESSION_COOKIE, { path: '/api' });
 }
 
-export function destroyUserSessions(userId: number) {
-  run('DELETE FROM sessions WHERE user_id = ?', userId);
+export function destroyUserSessions(userId: number, exceptReq?: Request) {
+  const keep = exceptReq ? currentSessionId(exceptReq) : null;
+  run('DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?', userId, keep);
+}
+
+/** The stored id (hash) of the session making this request. */
+export function currentSessionId(req: Request): string | null {
+  const token = readCookie(req, SESSION_COOKIE);
+  return token ? sha256(token) : null;
 }
 
 function readCookie(req: Request, name: string): string | undefined {
@@ -97,13 +137,19 @@ function readCookie(req: Request, name: string): string | undefined {
 export function loadSession(req: Request, _res: Response, next: NextFunction) {
   const token = readCookie(req, SESSION_COOKIE);
   if (token && token.length < 100) {
-    const row = get<SessionUser & { expires_at: string; active: number }>(
-      `SELECT u.id, u.name, u.username, u.role, u.active, s.expires_at
+    const sid = sha256(token);
+    const row = get<SessionUser & { expires_at: string; active: number; last_seen_at: string | null }>(
+      `SELECT u.id, u.name, u.username, u.role, u.active, s.expires_at, s.last_seen_at
          FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
-      sha256(token),
+      sid,
     );
-    if (row && row.active && row.expires_at > new Date().toISOString()) {
+    const now = new Date();
+    if (row && row.active && row.expires_at > now.toISOString()) {
       req.user = { id: row.id, name: row.name, username: row.username, role: row.role };
+      // Cheap "last active" for the sessions list: write at most every 5 minutes.
+      if (!row.last_seen_at || Date.parse(row.last_seen_at) < now.getTime() - 5 * 60_000) {
+        run('UPDATE sessions SET last_seen_at = ? WHERE id = ?', now.toISOString(), sid);
+      }
     }
   }
   next();
