@@ -49,12 +49,13 @@
   --info-soft: oklch(0.96 0.02 255);
   --danger-soft: oklch(0.96 0.025 27);
 
-  /* charts: gold, ink, slate-blue, sage, clay */
-  --chart-1: oklch(0.66 0.125 75);
-  --chart-2: oklch(0.32 0.01 60);
-  --chart-3: oklch(0.6 0.08 245);
-  --chart-4: oklch(0.65 0.08 155);
-  --chart-5: oklch(0.62 0.1 40);
+  /* charts — validated categorical set (lightness band, chroma floor, CVD separation, contrast).
+     1 gold = rooms, 2 blue = bar & shop, 3 green = facilities. 4 = neutral for single-series costs. */
+  --chart-1: #b8862b;
+  --chart-2: #3a78c2;
+  --chart-3: #3e9a6b;
+  --chart-4: oklch(0.55 0.01 70);
+  --chart-5: oklch(0.85 0.005 85);
 
   --sidebar: oklch(0.982 0.003 85);
   --sidebar-foreground: oklch(0.3 0.008 60);
@@ -92,6 +93,11 @@
   --warning-soft: oklch(0.32 0.05 75);
   --info-soft: oklch(0.3 0.04 255);
   --danger-soft: oklch(0.3 0.05 27);
+  --chart-1: #b88a35;
+  --chart-2: #4f86cf;
+  --chart-3: #3fa273;
+  --chart-4: oklch(0.65 0.01 70);
+  --chart-5: oklch(0.35 0.005 60);
   --sidebar: oklch(0.19 0.005 60);
   --sidebar-foreground: oklch(0.85 0.006 85);
   --sidebar-primary: oklch(0.72 0.12 78);

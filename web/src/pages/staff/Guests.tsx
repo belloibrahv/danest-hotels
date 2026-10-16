@@ -1,9 +1,16 @@
+import { Plus, Repeat, Search, Star, Users, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useDesk } from '../../components/Desk';
-import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Icon, Loading, PageHead, Stat, Tabs } from '../../components/kit';
-import { fmtDate, naira } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, StatCard } from '@/components/app/page';
+import { StatusPill, VipBadge } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Toggle } from '@/components/ui/toggle';
+import { fmtDate } from '@/lib/api';
+import { useApi } from '@/lib/hooks';
+import { useDesk } from './desk/Desk';
 
 interface Row {
   id: number;
@@ -22,82 +29,92 @@ export default function Guests() {
   const desk = useDesk();
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<'spend' | 'recent' | 'name'>('spend');
+  const [sort, setSort] = useState('spend');
   const [vip, setVip] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setQuery(q.trim()), 250);
     return () => clearTimeout(t);
   }, [q]);
   const { data, error } = useApi<Row[]>(`/guests?q=${encodeURIComponent(query)}&sort=${sort}${vip ? '&vip=1' : ''}&v=${desk.version}`);
-
+  const stayed = data?.filter((g) => g.stays > 0).length ?? 0;
   const returning = data?.filter((g) => g.stays > 1).length ?? 0;
-  const withStays = data?.filter((g) => g.stays > 0).length ?? 0;
 
   return (
     <>
-      <PageHead title="Guests" sub="Everyone who has stayed or booked. Repeat guests are recognised by phone number.">
-        <button className="btn primary" onClick={() => desk.newReservation()}>
-          <Icon name="plus" size={16} /> New booking
-        </button>
-      </PageHead>
-
+      <PageHeader
+        title="Guests"
+        description="Everyone who has stayed or booked. Returning guests are matched by phone number."
+        actions={
+          <Button onClick={() => desk.newReservation()}>
+            <Plus /> New booking
+          </Button>
+        }
+      />
       {data && !query && !vip && (
-        <div className="cards cols-4" style={{ marginBottom: 16 }}>
-          <Stat icon="user" label="Guest profiles" value={data.length >= 200 ? '200+' : data.length} />
-          <Stat icon="history" label="Came back again" value={returning} foot={withStays ? `${Math.round((returning / withStays) * 100)}% of guests who stayed` : undefined} />
-          <Stat icon="star" label="VIPs" value={data.filter((g) => g.vip).length} />
-          <Stat icon="receipt" label="Top guest's lifetime spend" value={naira(data[0]?.spend ?? 0)} foot={data[0]?.name} />
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard icon={Users} label="Guest profiles" value={data.length >= 200 ? '200+' : data.length} />
+          <StatCard icon={Repeat} label="Returning guests" value={returning} hint={stayed ? `${Math.round((returning / stayed) * 100)}% of guests who stayed` : undefined} />
+          <StatCard icon={Star} label="VIPs" value={data.filter((g) => g.vip).length} />
+          <StatCard icon={Wallet} label="Top lifetime spend" value={<Money value={data[0]?.spend ?? 0} />} hint={data[0]?.name} />
         </div>
       )}
-
-      <div className="row" style={{ marginBottom: 12 }}>
-        <Tabs value={sort} onChange={setSort} options={[{ value: 'spend', label: 'Top spenders' }, { value: 'recent', label: 'Recent' }, { value: 'name', label: 'A–Z' }]} />
-        <button className={`btn sm${vip ? ' gold' : ''}`} onClick={() => setVip(!vip)}>
-          <Icon name="star" size={14} /> VIPs only
-        </button>
-        <span className="spacer" />
-        <input className="input" style={{ width: 260 }} placeholder="Search name, phone or email" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Tabs value={sort} onValueChange={setSort}>
+          <TabsList className="h-9">
+            <TabsTrigger value="spend">Top spenders</TabsTrigger>
+            <TabsTrigger value="recent">Recent</TabsTrigger>
+            <TabsTrigger value="name">A–Z</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Toggle variant="outline" pressed={vip} onPressedChange={setVip} className="h-9 px-3">
+          <Star /> VIPs only
+        </Toggle>
+        <div className="relative ml-auto w-full sm:w-72">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-8" placeholder="Name, phone or email" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
-
-      <Card pad={false}>
-        <ErrorBox error={error} />
+      <Card className="gap-0 overflow-hidden py-0 shadow-xs">
+        <ErrorNote error={error} />
         {!data ? (
-          <Loading />
+          <LoadingRows rows={8} />
         ) : data.length === 0 ? (
-          <EmptyState illo={<EmptyIllo kind="key" />} title="No guests match">Try a different name or phone number.</EmptyState>
+          <EmptyState icon={Users} title="No guests found">Guests appear here as soon as they book.</EmptyState>
         ) : (
-          <div className="table-wrap">
-            <table className="t">
-              <thead>
-                <tr>
-                  <th>Guest</th>
-                  <th className="r">Stays</th>
-                  <th className="r">Nights</th>
-                  <th className="r">Lifetime spend</th>
-                  <th>Last stay</th>
-                  <th>Next</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((g) => (
-                  <tr key={g.id} className="click" onClick={() => desk.openGuest(g.id)}>
-                    <td>
-                      <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                        <span className="strong">{g.name}</span>
-                        {!!g.vip && <span className="vip">★ VIP</span>}
-                      </div>
-                      <div className="muted" style={{ fontSize: 12.5 }}>{g.phone}{g.email ? ` · ${g.email}` : ''}</div>
-                    </td>
-                    <td className="r">{g.stays}</td>
-                    <td className="r">{g.nights}</td>
-                    <td className="r strong">{naira(g.spend)}</td>
-                    <td className="muted">{g.last_stay ? fmtDate(g.last_stay) : '—'}</td>
-                    <td>{g.next_stay ? <span className="badge gold plain">{fmtDate(g.next_stay)}</span> : <span className="muted">—</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-5">Guest</TableHead>
+                <TableHead className="text-right">Stays</TableHead>
+                <TableHead className="text-right">Nights</TableHead>
+                <TableHead className="text-right">Lifetime spend</TableHead>
+                <TableHead className="hidden md:table-cell">Last stay</TableHead>
+                <TableHead className="pr-5">Next</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((g) => (
+                <TableRow key={g.id} className="cursor-pointer" onClick={() => desk.openGuest(g.id)}>
+                  <TableCell className="pl-5">
+                    <div className="flex items-center gap-2 font-medium">
+                      {g.name} {!!g.vip && <VipBadge />}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {g.phone}
+                      {g.email ? ` · ${g.email}` : ''}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{g.stays}</TableCell>
+                  <TableCell className="text-right tabular-nums">{g.nights}</TableCell>
+                  <TableCell className="text-right font-medium">
+                    <Money value={g.spend} />
+                  </TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">{g.last_stay ? fmtDate(g.last_stay) : '—'}</TableCell>
+                  <TableCell className="pr-5">{g.next_stay ? <StatusPill tone="brand">{fmtDate(g.next_stay)}</StatusPill> : <span className="text-muted-foreground">—</span>}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </Card>
     </>

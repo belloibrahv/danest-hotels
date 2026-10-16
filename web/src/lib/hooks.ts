@@ -24,3 +24,27 @@ export function useApi<T>(path: string | null) {
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { data, error, loading, reload };
 }
+
+/** Form submit helper: tracks busy/error state and never double-submits. */
+export function useSubmit() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = useCallback(
+    async (fn: () => Promise<unknown>) => {
+      if (busy) return false;
+      setBusy(true);
+      setError(null);
+      try {
+        await fn();
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Something went wrong');
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy],
+  );
+  return { busy, error, setError, submit };
+}

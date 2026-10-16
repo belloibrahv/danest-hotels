@@ -1,10 +1,20 @@
+import { CheckCircle2, ChevronLeft, ChevronRight, Lock, LockOpen, SprayCan } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { useDesk } from '../../components/Desk';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, useSubmit, useToast } from '../../components/kit';
-import { addDays, api, fmtDate, fmtDateLong, fmtDateTime, naira, pct } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
+import { toast } from 'sonner';
+import { Field, MoneyInput } from '@/components/app/form';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
+import { StatusPill } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { addDays, api, fmtDate, fmtDateLong, fmtDateTime, naira, pct } from '@/lib/api';
+import { useApi, useSubmit } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
 import type { Kpis } from './Dashboard';
+import { useDesk } from './desk/Desk';
 
 interface Report {
   revenue: { key: string; label: string; amount: number }[];
@@ -21,213 +31,244 @@ interface View {
   last_closed: string | null;
   closed: null | { closed_by_name: string; closed_at: string; expected_cash: number; counted_cash: number; variance: number; notes: string | null; summary: Report };
   checks: {
-    no_shows: { id: number; code: string; check_in: string; status: string; guest_name: string; room_type: string }[];
-    overdue: { id: number; code: string; check_out: string; guest_name: string; room_number: string | null; balance: number }[];
-    unpaid: { id: number; code: string; guest_name: string; room_number: string | null; balance: number }[];
+    no_shows: { id: number; code: string; check_in: string; guest_name: string; room_type: string }[];
+    overdue: { id: number; check_out: string; guest_name: string; room_number: string | null; balance: number }[];
+    unpaid: { id: number; guest_name: string; room_number: string | null; balance: number }[];
     dirty_rooms: number;
   };
   report: Report;
-  history: { date: string; expected_cash: number; counted_cash: number; variance: number; closed_at: string; closed_by_name: string }[];
+  history: { date: string; variance: number; closed_by_name: string }[];
 }
 
-/** Night audit: clear what is left open, count the drawer, close the books for the day. */
+/** Night audit: clear what is left open, count the drawer, close and lock the day. */
 export default function CloseDay() {
   const desk = useDesk();
-  const toast = useToast();
   const [date, setDate] = useState<string | null>(null);
-  const { data, error, reload } = useApi<View>(`/close-day${date ? `?date=${date}` : ''}${date ? '&' : '?'}v=${desk.version}`);
+  const { data, error, reload } = useApi<View>(`/close-day?${date ? `date=${date}&` : ''}v=${desk.version}`);
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
   const [reopening, setReopening] = useState(false);
   const { busy, error: closeErr, submit } = useSubmit();
 
-  if (error) return <ErrorBox error={error} />;
-  if (!data) return <Loading />;
+  if (error) return <ErrorNote error={error} />;
+  if (!data) return <LoadingRows rows={8} />;
   const r = data.closed?.summary ?? data.report;
-  const expectedCash = data.closed?.expected_cash ?? r.collections.byMethod.cash ?? 0;
-  const variance = counted === '' ? null : Number(counted) - expectedCash;
+  const expected = data.closed?.expected_cash ?? r.collections.byMethod.cash ?? 0;
+  const variance = counted === '' ? null : Number(counted) - expected;
   const canClose = !data.closed && (!data.last_closed || data.date === addDays(data.last_closed, 1));
-  const noShow = (id: number) => api(`/reservations/${id}/no-show`, { body: {} }).then(() => (toast('Marked as no-show'), desk.changed()), (e) => toast(e.message));
+  const open = data.checks.no_shows.length + data.checks.overdue.length;
+  const noShow = (id: number) => api(`/reservations/${id}/no-show`, { body: {} }).then(() => (toast.success('Marked as no-show'), desk.changed()), (e) => toast.error(e.message));
 
   const close = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
       await api('/close-day', { body: { date: data.date, counted_cash: Number(counted), notes } });
-      toast(`${fmtDateLong(data.date)} is closed`);
+      toast.success(`${fmtDateLong(data.date)} is closed`);
       setCounted('');
       setNotes('');
       reload();
     });
   };
 
-  const open = data.checks.no_shows.length + data.checks.overdue.length;
-
   return (
     <>
-      <PageHead
+      <PageHeader
         title="Close the day"
-        sub={data.closed ? `Closed by ${data.closed.closed_by_name} · ${fmtDateTime(data.closed.closed_at)}` : 'Clear what is left open, count the cash drawer, and lock the day.'}
-      >
-        <div className="row" style={{ gap: 6 }}>
-          <button className="btn sm" onClick={() => setDate(addDays(data.date, -1))} aria-label="Previous day">‹</button>
-          <span className="badge plain" style={{ height: 32, padding: '0 12px', fontSize: 13 }}>{fmtDateLong(data.date)}</span>
-          <button className="btn sm" disabled={data.date >= data.today} onClick={() => setDate(addDays(data.date, 1))} aria-label="Next day">›</button>
-        </div>
-      </PageHead>
+        description={data.closed ? `Closed by ${data.closed.closed_by_name} · ${fmtDateTime(data.closed.closed_at)}` : 'Clear what is open, count the cash drawer, and lock the day.'}
+        actions={
+          <div className="flex items-center rounded-md border">
+            <Button variant="ghost" size="icon" className="rounded-r-none" onClick={() => setDate(addDays(data.date, -1))} aria-label="Previous day">
+              <ChevronLeft />
+            </Button>
+            <span className="border-x px-3 text-sm font-medium tabular-nums">{fmtDateLong(data.date)}</span>
+            <Button variant="ghost" size="icon" className="rounded-l-none" disabled={data.date >= data.today} onClick={() => setDate(addDays(data.date, 1))} aria-label="Next day">
+              <ChevronRight />
+            </Button>
+          </div>
+        }
+      />
+      {data.last_closed && (
+        <p className="-mt-3 mb-6 flex items-center gap-2 text-sm text-muted-foreground">
+          <Lock className="size-3.5" /> Books closed up to <b className="text-foreground">{fmtDateLong(data.last_closed)}</b>. Nothing can be recorded on or before that date.
+        </p>
+      )}
 
-      {data.last_closed && <p className="muted" style={{ marginTop: -12, marginBottom: 16, fontSize: 14 }}>Books are closed up to <b>{fmtDateLong(data.last_closed)}</b>. Money can't be recorded on or before that date.</p>}
-
-      <div className="cards cols-4" style={{ marginBottom: 16 }}>
-        <Stat icon="receipt" label="Earned" value={naira(r.totalRevenue)} foot={`Spent ${naira(r.expenses)}`} />
-        <Stat icon="bolt" label="Collected" value={naira(r.collections.total)} foot={`Cash ${naira(r.collections.byMethod.cash ?? 0)} · Transfer ${naira(r.collections.byMethod.transfer ?? 0)} · POS ${naira(r.collections.byMethod.pos ?? 0)}`} />
-        <Stat icon="bed" label="Occupancy" value={pct(r.kpis.occupancy)} foot={`${r.kpis.roomNightsSold} rooms · ADR ${naira(r.kpis.adr)}`} />
-        <Stat icon="calendar" label="Arrivals · departures" value={`${r.arrivals} · ${r.departures}`} />
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <StatCard label="Earned" value={<Money value={r.totalRevenue} />} hint={`Spent ${naira(r.expenses)}`} />
+        <StatCard label="Collected" value={<Money value={r.collections.total} />} hint={`Cash ${naira(r.collections.byMethod.cash ?? 0)}`} />
+        <StatCard label="Occupancy" value={pct(r.kpis.occupancy)} hint={`${r.kpis.roomNightsSold} rooms · ADR ${naira(r.kpis.adr)}`} />
+        <StatCard label="Arrivals · departures" value={`${r.arrivals} · ${r.departures}`} />
       </div>
 
-      <div className="cards cols-main" style={{ alignItems: 'start' }}>
-        <div className="stack">
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_400px]">
+        <div className="space-y-6">
           {!data.closed && (
-            <Card title={open ? `${open} thing${open > 1 ? 's' : ''} to sort before closing` : 'Nothing left open'} sub="Each booking should end the day as arrived, cancelled or a no-show." pad={false}>
+            <Section title={open ? `${open} to sort before closing` : 'Nothing left open'} description="Every booking should end the day arrived, cancelled or a no-show." flush>
               {open === 0 && data.checks.unpaid.length === 0 ? (
-                <div className="empty">All arrivals are in and no one is past their departure date.</div>
+                <EmptyState icon={CheckCircle2} title="All clear" className="py-8">All arrivals are in and no one is past their departure date.</EmptyState>
               ) : (
-                <div className="table-wrap">
-                  <table className="t">
-                    <tbody>
-                      {data.checks.no_shows.map((n) => (
-                        <tr key={`n${n.id}`}>
-                          <td><span className="badge amber">Didn't arrive</span></td>
-                          <td><b>{n.guest_name}</b><div className="muted" style={{ fontSize: 12.5 }}>{n.room_type} · due {fmtDate(n.check_in)} · {n.code}</div></td>
-                          <td className="r" style={{ whiteSpace: 'nowrap' }}>
-                            <button className="btn sm ghost" onClick={() => desk.openReservation(n.id)}>Open</button>
-                            <button className="btn sm" onClick={() => noShow(n.id)}>No-show</button>
-                          </td>
-                        </tr>
-                      ))}
-                      {data.checks.overdue.map((o) => (
-                        <tr key={`o${o.id}`}>
-                          <td><span className="badge red">Past departure</span></td>
-                          <td><b>{o.guest_name}</b><div className="muted" style={{ fontSize: 12.5 }}>Room {o.room_number} · was due out {fmtDate(o.check_out)}{o.balance > 0 ? ` · owes ${naira(o.balance)}` : ''}</div></td>
-                          <td className="r"><button className="btn sm" onClick={() => desk.openReservation(o.id)}>Check out or extend</button></td>
-                        </tr>
-                      ))}
-                      {data.checks.unpaid.map((u) => (
-                        <tr key={`u${u.id}`}>
-                          <td><span className="badge plain">Owes</span></td>
-                          <td><b>{u.guest_name}</b><div className="muted" style={{ fontSize: 12.5 }}>Room {u.room_number} · in house · {naira(u.balance)} on the bill</div></td>
-                          <td className="r"><button className="btn sm ghost" onClick={() => desk.openReservation(u.id)}>Open bill</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <Table>
+                  <TableBody>
+                    {data.checks.no_shows.map((n) => (
+                      <TableRow key={`n${n.id}`}>
+                        <TableCell className="pl-5"><StatusPill tone="warning">Didn't arrive</StatusPill></TableCell>
+                        <TableCell>
+                          <div className="font-medium">{n.guest_name}</div>
+                          <div className="text-xs text-muted-foreground">{n.room_type} · due {fmtDate(n.check_in)}</div>
+                        </TableCell>
+                        <TableCell className="pr-5 text-right whitespace-nowrap">
+                          <Button variant="ghost" size="sm" onClick={() => desk.openReservation(n.id)}>Open</Button>
+                          <Button variant="outline" size="sm" onClick={() => noShow(n.id)}>No-show</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {data.checks.overdue.map((o) => (
+                      <TableRow key={`o${o.id}`}>
+                        <TableCell className="pl-5"><StatusPill tone="danger">Past departure</StatusPill></TableCell>
+                        <TableCell>
+                          <div className="font-medium">{o.guest_name}</div>
+                          <div className="text-xs text-muted-foreground">Room {o.room_number} · due out {fmtDate(o.check_out)}{o.balance > 0 ? ` · owes ${naira(o.balance)}` : ''}</div>
+                        </TableCell>
+                        <TableCell className="pr-5 text-right"><Button variant="outline" size="sm" onClick={() => desk.openReservation(o.id)}>Check out or extend</Button></TableCell>
+                      </TableRow>
+                    ))}
+                    {data.checks.unpaid.map((u) => (
+                      <TableRow key={`u${u.id}`}>
+                        <TableCell className="pl-5"><StatusPill>Owes</StatusPill></TableCell>
+                        <TableCell>
+                          <div className="font-medium">{u.guest_name}</div>
+                          <div className="text-xs text-muted-foreground">Room {u.room_number} · in house · {naira(u.balance)} on the bill</div>
+                        </TableCell>
+                        <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" onClick={() => desk.openReservation(u.id)}>Open bill</Button></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
               {data.checks.dirty_rooms > 0 && (
-                <div className="card-body muted" style={{ borderTop: '1px solid var(--line)', fontSize: 13.5 }}>
-                  {data.checks.dirty_rooms} room{data.checks.dirty_rooms > 1 ? 's are' : ' is'} still waiting for housekeeping. <Link to="/staff/housekeeping">See housekeeping</Link>
+                <div className="flex items-center gap-2 border-t px-5 py-3 text-sm text-muted-foreground">
+                  <SprayCan className="size-4" /> {data.checks.dirty_rooms} room{data.checks.dirty_rooms > 1 ? 's' : ''} still to clean.
+                  <Link to="/staff/housekeeping" className="font-medium text-foreground underline-offset-4 hover:underline">Housekeeping</Link>
                 </div>
               )}
-            </Card>
+            </Section>
           )}
 
-          <Card title="Where the day's money came from">
-            <div className="stack" style={{ gap: 8 }}>
-              {r.revenue.filter((x) => x.amount > 0).map((x) => (
-                <div key={x.key} className="row" style={{ justifyContent: 'space-between' }}><span>{x.label}</span><b className="num">{naira(x.amount)}</b></div>
-              ))}
-              {r.totalRevenue === 0 && <span className="muted">Nothing earned on this day.</span>}
-              <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--line)', paddingTop: 8 }}><b>Total earned</b><b className="num">{naira(r.totalRevenue)}</b></div>
+          <Section title="The day's money">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-2 text-sm">
+                <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Earned</div>
+                {r.revenue.filter((x) => x.amount > 0).map((x) => (
+                  <div key={x.key} className="flex justify-between"><span>{x.label}</span><Money value={x.amount} /></div>
+                ))}
+                {r.totalRevenue === 0 && <p className="text-muted-foreground">Nothing earned.</p>}
+                <div className="flex justify-between border-t pt-2 font-semibold"><span>Total</span><Money value={r.totalRevenue} /></div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Collected</div>
+                {Object.entries(r.collections.bySource).map(([k, v]) => (
+                  <div key={k} className="flex justify-between"><span>{k}</span><Money value={v} /></div>
+                ))}
+                {r.collections.total === 0 && <p className="text-muted-foreground">Nothing collected.</p>}
+                <div className="flex justify-between border-t pt-2 font-semibold"><span>Total</span><Money value={r.collections.total} /></div>
+              </div>
             </div>
-          </Card>
+          </Section>
         </div>
 
-        <div className="stack">
+        <div className="space-y-6 xl:sticky xl:top-20">
           {data.closed ? (
-            <Card title={<span className="row" style={{ gap: 8 }}><Icon name="lock" size={16} /> Day closed</span>}>
-              <div className="stack" style={{ gap: 8 }}>
-                <div className="row" style={{ justifyContent: 'space-between' }}><span>Cash expected</span><b className="num">{naira(data.closed.expected_cash)}</b></div>
-                <div className="row" style={{ justifyContent: 'space-between' }}><span>Cash counted</span><b className="num">{naira(data.closed.counted_cash)}</b></div>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <span>Difference</span>
-                  <b className="num" style={{ color: data.closed.variance === 0 ? 'var(--green)' : 'var(--red)' }}>{data.closed.variance === 0 ? 'Balanced' : naira(data.closed.variance)}</b>
+            <Section title={<span className="flex items-center gap-2"><Lock className="size-4" /> Day closed</span>}>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between"><dt>Cash expected</dt><Money value={data.closed.expected_cash} /></div>
+                <div className="flex justify-between"><dt>Cash counted</dt><Money value={data.closed.counted_cash} /></div>
+                <div className="flex justify-between font-semibold">
+                  <dt>Difference</dt>
+                  <span className={data.closed.variance === 0 ? 'text-success' : 'text-destructive'}>{data.closed.variance === 0 ? 'Balanced' : naira(data.closed.variance)}</span>
                 </div>
-                {data.closed.notes && <div className="muted" style={{ fontSize: 14 }}>“{data.closed.notes}”</div>}
-                {data.date === data.last_closed && (
-                  <button className="btn sm danger" style={{ justifySelf: 'start', marginTop: 8 }} onClick={() => setReopening(true)}>Reopen this day</button>
-                )}
-              </div>
-            </Card>
+              </dl>
+              {data.closed.notes && <p className="mt-3 rounded-md bg-muted/50 p-3 text-sm">“{data.closed.notes}”</p>}
+              {data.date === data.last_closed && (
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => setReopening(true)}>
+                  <LockOpen /> Reopen this day
+                </Button>
+              )}
+            </Section>
           ) : canClose ? (
-            <Card title="Count the cash drawer" sub="Count the notes in the drawer and type the total. Transfers and POS are checked against the bank and POS slips.">
-              <form className="stack" onSubmit={close}>
-                <div className="stack" style={{ gap: 6, fontSize: 14 }}>
-                  <div className="row" style={{ justifyContent: 'space-between' }}><span>Cash the system expects</span><b className="num">{naira(expectedCash)}</b></div>
-                  <div className="row muted" style={{ justifyContent: 'space-between' }}><span>Transfers to check</span><span className="num">{naira(r.collections.byMethod.transfer ?? 0)}</span></div>
-                  <div className="row muted" style={{ justifyContent: 'space-between' }}><span>POS slips to check</span><span className="num">{naira(r.collections.byMethod.pos ?? 0)}</span></div>
-                </div>
-                <Field label="Cash counted (₦)">
-                  <input className="input num" style={{ fontSize: 20, height: 52 }} inputMode="numeric" value={counted} onChange={(e) => setCounted(e.target.value.replace(/\D/g, ''))} required />
+            <Section title="Count the cash drawer" description="Count the notes and type the total. Check transfers and POS against the bank and POS slips.">
+              <form className="grid gap-4" onSubmit={close}>
+                <dl className="space-y-1.5 text-sm">
+                  <div className="flex justify-between font-medium"><dt>Cash expected</dt><Money value={expected} /></div>
+                  <div className="flex justify-between text-muted-foreground"><dt>Transfers to check</dt><Money value={r.collections.byMethod.transfer ?? 0} /></div>
+                  <div className="flex justify-between text-muted-foreground"><dt>POS slips to check</dt><Money value={r.collections.byMethod.pos ?? 0} /></div>
+                  {!!r.collections.byMethod.online && <div className="flex justify-between text-muted-foreground"><dt>Paid online (Paystack)</dt><Money value={r.collections.byMethod.online} /></div>}
+                </dl>
+                <Field label="Cash counted">
+                  <MoneyInput value={counted} onChange={setCounted} required className="[&_input]:h-12 [&_input]:text-lg" />
                 </Field>
                 {variance !== null && (
-                  <div className={`status-card ${variance === 0 ? 'green' : 'red'}`} style={{ padding: '12px 14px' }}>
-                    <b style={{ fontSize: 15 }}>{variance === 0 ? 'Balanced to the naira' : variance > 0 ? `${naira(variance)} over` : `${naira(-variance)} short`}</b>
+                  <div className={cn('rounded-md border px-3 py-2.5 text-sm font-medium', variance === 0 ? 'border-success/30 bg-success-soft text-success' : 'border-destructive/30 bg-danger-soft text-destructive')}>
+                    {variance === 0 ? 'Balanced to the naira' : variance > 0 ? `${naira(variance)} over` : `${naira(-variance)} short`}
                   </div>
                 )}
-                <Field label={variance ? 'Explain the difference (required)' : 'Notes (optional)'}>
-                  <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} required={!!variance} />
+                <Field label={variance ? 'Explain the difference (required)' : 'Notes'}>
+                  <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} required={!!variance} rows={2} />
                 </Field>
-                <ErrorBox error={closeErr} />
-                <button className="btn primary lg block" disabled={busy || counted === ''}>
-                  <Icon name="lock" size={16} /> Close {fmtDate(data.date)}
-                </button>
-                <p className="muted" style={{ fontSize: 12.5 }}>After closing, no payment, sale or expense can be recorded on or before this day unless a manager reopens it. Reopening is logged.</p>
+                <ErrorNote error={closeErr} />
+                <Button size="lg" disabled={busy || counted === ''}>
+                  <Lock /> Close {fmtDate(data.date)}
+                </Button>
+                <p className="text-xs text-muted-foreground">After closing, no payment, sale or expense can be dated on or before this day unless a manager reopens it. Reopening is logged.</p>
               </form>
-            </Card>
+            </Section>
           ) : (
-            <Card title="Not ready to close">
-              <p className="muted">Days are closed in order. Close <b>{fmtDateLong(addDays(data.last_closed!, 1))}</b> first.</p>
-              <button className="btn sm" style={{ marginTop: 12 }} onClick={() => setDate(addDays(data.last_closed!, 1))}>Go to that day</button>
-            </Card>
+            <Section title="Not ready to close">
+              <p className="text-sm text-muted-foreground">Days close in order. Close <b className="text-foreground">{fmtDateLong(addDays(data.last_closed!, 1))}</b> first.</p>
+              <Button size="sm" variant="outline" className="mt-3" onClick={() => setDate(addDays(data.last_closed!, 1))}>Go to that day</Button>
+            </Section>
           )}
 
           {data.history.length > 0 && (
-            <Card title="Recent closings" pad={false}>
-              <table className="t">
-                <tbody>
+            <Section title="Recent closings" flush>
+              <Table>
+                <TableBody>
                   {data.history.map((h) => (
-                    <tr key={h.date} className="click" onClick={() => setDate(h.date)}>
-                      <td className="num">{fmtDate(h.date)}</td>
-                      <td className="muted">{h.closed_by_name}</td>
-                      <td className="r">{h.variance === 0 ? <span className="badge green">Balanced</span> : <span className="badge red">{naira(h.variance)}</span>}</td>
-                    </tr>
+                    <TableRow key={h.date} className="cursor-pointer" onClick={() => setDate(h.date)}>
+                      <TableCell className="pl-5 tabular-nums">{fmtDate(h.date)}</TableCell>
+                      <TableCell className="text-muted-foreground">{h.closed_by_name}</TableCell>
+                      <TableCell className="pr-5 text-right">{h.variance === 0 ? <StatusPill tone="success">Balanced</StatusPill> : <StatusPill tone="danger">{naira(h.variance)}</StatusPill>}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </Card>
+                </TableBody>
+              </Table>
+            </Section>
           )}
         </div>
       </div>
-
-      {reopening && <Reopen onClose={() => setReopening(false)} onDone={() => (setReopening(false), reload())} />}
+      <Reopen open={reopening} onClose={() => setReopening(false)} onDone={() => (setReopening(false), reload())} />
     </>
   );
 }
 
-function Reopen({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function Reopen({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState('');
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
   return (
-    <Modal title="Reopen the day" onClose={onClose}>
-      <form className="stack" onSubmit={(e) => (e.preventDefault(), submit(async () => (await api('/close-day/reopen', { body: { reason } }), toast('Day reopened — this is in the activity log'), onDone())))}>
-        <p className="muted">Reopening lets money be recorded on that day again. Say why — it's kept in the activity log.</p>
-        <Field label="Reason"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={300} placeholder="e.g. Diesel receipt came in late" /></Field>
-        <ErrorBox error={error} />
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn danger" disabled={busy}>Reopen</button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reopen the day</DialogTitle>
+          <DialogDescription>Money can be recorded on that day again. The reason is kept in the activity log.</DialogDescription>
+        </DialogHeader>
+        <form id="reopen" onSubmit={(e) => (e.preventDefault(), submit(async () => (await api('/close-day/reopen', { body: { reason } }), toast.success('Day reopened'), setReason(''), onDone())))}>
+          <Field label="Reason"><Input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={5} maxLength={300} placeholder="Diesel receipt came in late" /></Field>
+          <div className="mt-3"><ErrorNote error={error} /></div>
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="reopen" variant="destructive" disabled={busy}>Reopen</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

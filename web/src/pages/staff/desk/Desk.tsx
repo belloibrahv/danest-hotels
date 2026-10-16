@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { GuestDrawer } from '../pages/staff/GuestDrawer';
-import { NewReservation, type NewReservationPreset } from '../pages/staff/NewReservation';
-import { ReservationDrawer } from '../pages/staff/ReservationDrawer';
+import { GuestSheet } from './GuestSheet';
+import { NewReservation, type NewReservationPreset } from './NewReservation';
+import { ReservationSheet } from './ReservationSheet';
 
 /**
  * The front desk's shared surfaces. Any screen (tape chart, room board, search, dashboard)
@@ -22,7 +22,7 @@ export const useDesk = () => useContext(Ctx);
 export function DeskProvider({ children }: { children: ReactNode }) {
   const [resId, setResId] = useState<number | null>(null);
   const [guestId, setGuestId] = useState<number | null>(null);
-  const [creating, setCreating] = useState<NewReservationPreset | null | false>(false);
+  const [creating, setCreating] = useState<{ preset?: NewReservationPreset } | null>(null);
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -30,7 +30,7 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     () => ({
       openReservation: (id) => (setGuestId(null), setResId(id)),
       openGuest: (id) => (setResId(null), setGuestId(id)),
-      newReservation: (preset) => setCreating(preset ?? null),
+      newReservation: (preset) => (setResId(null), setGuestId(null), setCreating({ preset })),
       version,
       changed,
     }),
@@ -40,19 +40,18 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={api}>
       {children}
-      {resId !== null && <ReservationDrawer id={resId} onClose={() => setResId(null)} />}
-      {guestId !== null && <GuestDrawer id={guestId} onClose={() => setGuestId(null)} />}
-      {creating !== false && (
-        <NewReservation
-          preset={creating ?? undefined}
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false);
-            changed();
-            setResId(id);
-          }}
-        />
-      )}
+      <ReservationSheet id={resId} onClose={() => setResId(null)} />
+      <GuestSheet id={guestId} onClose={() => setGuestId(null)} />
+      <NewReservation
+        open={!!creating}
+        preset={creating?.preset}
+        onClose={() => setCreating(null)}
+        onCreated={(id) => {
+          setCreating(null);
+          changed();
+          setResId(id);
+        }}
+      />
     </Ctx.Provider>
   );
 }

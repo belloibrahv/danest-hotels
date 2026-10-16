@@ -1,22 +1,25 @@
+import { Receipt, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { toast } from 'sonner';
 import { EXPENSE_CATEGORIES, PAYMENT_LABELS, PAYMENT_METHODS, type ExpenseCategory, type PaymentMethod } from '../../../../shared/constants';
-import { HBars } from '../../components/charts';
-import { DateRange, useRange } from '../../components/DateRange';
-import { Card, Empty, ErrorBox, Field, Loading, PageHead, useSubmit, useToast } from '../../components/kit';
-import { api, fmtDate, naira, todayISO } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
+import { DateRangePicker, useRange } from '@/components/app/date-range';
+import { DateInput, Field, MoneyInput, SelectField, useConfirm } from '@/components/app/form';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section } from '@/components/app/page';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { api, fmtDate, naira, todayISO } from '@/lib/api';
+import { useApi, useSubmit } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
 
 interface Data {
   rows: { id: number; date: string; category: ExpenseCategory; description: string; paid_to: string | null; amount: number; method: PaymentMethod; recorded_by: string }[];
   totals: { category: ExpenseCategory; total: number }[];
 }
-
 const LABEL = Object.fromEntries(EXPENSE_CATEGORIES.map((c) => [c.key, c.label])) as Record<ExpenseCategory, string>;
-
-/** One-tap starting points for the costs the hotel pays most often. */
 const QUICK: { category: ExpenseCategory; description: string }[] = [
   { category: 'diesel', description: 'Diesel for generator' },
-  { category: 'electricity', description: 'Prepaid electricity units (IBEDC)' },
+  { category: 'electricity', description: 'Prepaid electricity units' },
   { category: 'salaries', description: 'Monthly payroll' },
   { category: 'repairs', description: 'Generator servicing' },
   { category: 'housekeeping', description: 'Toiletries, detergent & laundry' },
@@ -28,104 +31,124 @@ export default function Expenses() {
   const [cat, setCat] = useState<ExpenseCategory | 'all'>('all');
   const [f, setF] = useState({ category: 'diesel' as ExpenseCategory, description: '', paid_to: '', amount: '', method: 'transfer' as PaymentMethod, date: todayISO() });
   const { busy, error: saveErr, submit } = useSubmit();
-  const toast = useToast();
+  const confirm = useConfirm();
   const total = data?.totals.reduce((a, t) => a + t.total, 0) ?? 0;
+  const max = Math.max(1, ...(data?.totals.map((t) => t.total) ?? []));
   const rows = data?.rows.filter((r) => cat === 'all' || r.category === cat) ?? [];
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
       await api('/expenses', { body: { ...f, amount: Number(f.amount) } });
-      toast(`${LABEL[f.category]}: ${naira(Number(f.amount))} recorded`);
+      toast.success(`${LABEL[f.category]}: ${naira(Number(f.amount))}`);
       setF({ ...f, description: '', paid_to: '', amount: '' });
       reload();
     });
   };
-
-  const remove = async (id: number) => {
-    if (!confirm('Delete this expense? The deletion is kept in the activity log.')) return;
-    await api(`/expenses/${id}`, { method: 'DELETE' }).then(() => (toast('Expense deleted'), reload()), (e) => toast(e.message));
+  const remove = async (id: number, d: string) => {
+    if (!(await confirm({ title: 'Delete this expense?', description: `“${d}” — the deletion is kept in the activity log.`, confirmLabel: 'Delete', destructive: true }))) return;
+    api(`/expenses/${id}`, { method: 'DELETE' }).then(() => (toast.success('Expense deleted'), reload()), (e) => toast.error(e.message));
   };
 
   return (
     <>
-      <PageHead title="Expenses" sub="Salaries, diesel, NEPA, repairs and every other running cost. These come straight off the profit." />
-      <div className="row" style={{ marginBottom: 16 }}>
-        <DateRange state={range} />
-      </div>
-
-      <div className="cards cols-main" style={{ alignItems: 'start' }}>
-        <div className="stack">
-          <Card title={`${naira(total)} spent`} sub="By category · tap a bar's label to filter the list">
-            {!data ? <Loading /> : data.totals.length === 0 ? <Empty>No expenses yet in this period.</Empty> : (
-              <HBars
-                tone="ink"
-                rows={data.totals.map((t) => ({
-                  label: (
-                    <button className="btn ghost sm" style={{ padding: 0, height: 'auto', fontWeight: cat === t.category ? 800 : 500 }} onClick={() => setCat(cat === t.category ? 'all' : t.category)}>
-                      {LABEL[t.category] ?? t.category}
-                    </button>
-                  ),
-                  value: t.total,
-                }))}
-              />
-            )}
-          </Card>
-          <Card pad={false} title={cat === 'all' ? 'All expenses' : LABEL[cat]} action={cat !== 'all' && <button className="btn sm" onClick={() => setCat('all')}>Show all</button>}>
-            <ErrorBox error={error} />
-            {rows.length === 0 ? <Empty>Nothing to show.</Empty> : (
-              <div className="table-wrap">
-                <table className="t">
-                  <thead><tr><th>Date</th><th>What</th><th>Category</th><th>Paid to</th><th className="r">Amount</th><th /></tr></thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.id}>
-                        <td className="num">{fmtDate(r.date)}</td>
-                        <td>{r.description}<div className="muted" style={{ fontSize: 12.5 }}>{PAYMENT_LABELS[r.method]} · {r.recorded_by}</div></td>
-                        <td><span className="badge plain">{LABEL[r.category] ?? r.category}</span></td>
-                        <td className="muted">{r.paid_to ?? '—'}</td>
-                        <td className="r strong">{naira(r.amount)}</td>
-                        <td className="r"><button className="btn ghost sm danger" onClick={() => remove(r.id)} aria-label={`Delete ${r.description}`}>Delete</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      <PageHeader title="Expenses" description="Salaries, diesel, NEPA, repairs and every other running cost." actions={<DateRangePicker state={range} />} />
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_380px]">
+        <div className="space-y-6">
+          <Section title={<>Spent: <Money value={total} /></>} description="By category — select one to filter the list">
+            {!data ? (
+              <LoadingRows rows={4} />
+            ) : data.totals.length === 0 ? (
+              <EmptyState icon={Receipt} title="No expenses in this period" className="py-6" />
+            ) : (
+              <div className="space-y-2.5">
+                {data.totals.map((t) => (
+                  <button key={t.category} onClick={() => setCat(cat === t.category ? 'all' : t.category)} className={cn('grid w-full grid-cols-[1fr_auto] gap-x-3 gap-y-1 rounded-md p-1.5 text-left text-sm transition-colors hover:bg-muted/60', cat === t.category && 'bg-muted')}>
+                    <span className={cat === t.category ? 'font-medium' : ''}>{LABEL[t.category] ?? t.category}</span>
+                    <Money value={t.total} />
+                    <div className="col-span-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-chart-4" style={{ width: `${(t.total / max) * 100}%` }} />
+                    </div>
+                  </button>
+                ))}
               </div>
             )}
-          </Card>
+          </Section>
+          <Section
+            title={cat === 'all' ? 'All expenses' : LABEL[cat]}
+            action={cat !== 'all' && <Button variant="ghost" size="sm" onClick={() => setCat('all')}>Show all</Button>}
+            flush
+          >
+            <ErrorNote error={error} />
+            {rows.length === 0 ? (
+              <EmptyState title="Nothing to show" />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="pl-5">Date</TableHead>
+                    <TableHead>What</TableHead>
+                    <TableHead className="hidden md:table-cell">Paid to</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="pr-5" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="pl-5 tabular-nums">{fmtDate(r.date)}</TableCell>
+                      <TableCell>
+                        {r.description}
+                        <div className="text-xs text-muted-foreground">
+                          {LABEL[r.category]} · {PAYMENT_LABELS[r.method]} · {r.recorded_by}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground md:table-cell">{r.paid_to ?? '—'}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        <Money value={r.amount} />
+                      </TableCell>
+                      <TableCell className="pr-5 text-right">
+                        <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => remove(r.id, r.description)} aria-label={`Delete ${r.description}`}>
+                          <Trash2 />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Section>
         </div>
 
-        <Card title="Record an expense">
-          <form className="stack" onSubmit={onSubmit}>
-            <div className="row" style={{ gap: 6 }}>
+        <Section title="Record an expense" className="xl:sticky xl:top-20">
+          <form className="grid gap-4" onSubmit={onSubmit}>
+            <div className="flex flex-wrap gap-1.5">
               {QUICK.map((q) => (
-                <button type="button" key={q.description} className="btn sm" onClick={() => setF({ ...f, category: q.category, description: q.description })}>
+                <Button key={q.description} type="button" variant={f.category === q.category && f.description === q.description ? 'secondary' : 'outline'} size="sm" className="h-7 text-xs" onClick={() => setF({ ...f, category: q.category, description: q.description })}>
                   {LABEL[q.category].split(' (')[0]}
-                </button>
+                </Button>
               ))}
             </div>
             <Field label="Category">
-              <select className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value as ExpenseCategory })}>
-                {EXPENSE_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </select>
+              <SelectField value={f.category} onChange={(v) => setF({ ...f, category: v as ExpenseCategory })} options={EXPENSE_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))} />
             </Field>
-            <Field label="What was it for"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} required maxLength={200} placeholder="e.g. Diesel 200 litres" /></Field>
-            <div className="grid-2">
-              <Field label="Amount (₦)"><input className="input num" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, '') })} required /></Field>
-              <Field label="Date"><input className="input" type="date" max={todayISO()} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></Field>
-            </div>
-            <div className="grid-2">
-              <Field label="Paid to (optional)"><input className="input" value={f.paid_to} onChange={(e) => setF({ ...f, paid_to: e.target.value })} maxLength={120} /></Field>
+            <Field label="What was it for">
+              <Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} required maxLength={200} placeholder="Diesel 200 litres" />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Amount"><MoneyInput value={f.amount} onChange={(v) => setF({ ...f, amount: v })} required /></Field>
               <Field label="Paid by">
-                <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value as PaymentMethod })}>
-                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{PAYMENT_LABELS[m]}</option>)}
-                </select>
+                <SelectField value={f.method} onChange={(v) => setF({ ...f, method: v as PaymentMethod })} options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_LABELS[m] }))} />
               </Field>
             </div>
-            <ErrorBox error={saveErr} />
-            <button className="btn primary lg block" disabled={busy}>{busy ? 'Saving…' : 'Record expense'}</button>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date"><DateInput value={f.date} max={todayISO()} onChange={(v) => setF({ ...f, date: v })} /></Field>
+              <Field label="Paid to"><Input value={f.paid_to} onChange={(e) => setF({ ...f, paid_to: e.target.value })} maxLength={120} placeholder="Optional" /></Field>
+            </div>
+            <ErrorNote error={saveErr} />
+            <Button size="lg" disabled={busy}>{busy ? 'Saving…' : 'Record expense'}</Button>
           </form>
-        </Card>
+        </Section>
       </div>
     </>
   );

@@ -1,91 +1,102 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { ChevronsUpDown, ExternalLink, KeyRound, LogOut, Moon, Search, Sun } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ROLE_LABELS, type Role } from '../../../../shared/constants';
-import { CommandPalette } from '../../components/CommandPalette';
-import { DeskProvider, useDesk } from '../../components/Desk';
-import { Icon, Loading } from '../../components/kit';
-import { useAuth, homeFor } from '../../lib/auth';
-import { useApi } from '../../lib/hooks';
-import Account from './Account';
-import Calendar from './Calendar';
-import CloseDay from './CloseDay';
-import Dashboard from './Dashboard';
-import Expenses from './Expenses';
-import FrontDesk from './FrontDesk';
-import Guests from './Guests';
-import Housekeeping from './Housekeeping';
-import Inventory from './Inventory';
-import Invoice from './Invoice';
+import { useTheme } from 'next-themes';
+import { ROLE_LABELS } from '../../../../shared/constants';
+import { CommandMenu } from '@/components/app/command-menu';
+import { LoadingRows } from '@/components/app/page';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Separator } from '@/components/ui/separator';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { homeFor, useAuth } from '@/lib/auth';
+import { useApi } from '@/lib/hooks';
+import { DeskProvider, useDesk } from './desk/Desk';
 import Login from './Login';
-import OtherIncome from './OtherIncome';
-import Pos from './Pos';
-import Purchases from './Purchases';
-import Reports from './Reports';
-import Reservations from './Reservations';
-import Settings from './Settings';
-import Team from './Team';
+import { NAV } from './nav';
 
-type NavItem = { to: string; label: string; icon: string; roles: Role[]; el: ReactNode; group: string; end?: boolean };
-
-const NAV: NavItem[] = [
-  { to: '/staff', label: 'Overview', icon: 'dashboard', roles: ['manager', 'frontdesk'], el: <Dashboard />, group: 'Front office', end: true },
-  { to: '/staff/calendar', label: 'Tape chart', icon: 'grid', roles: ['manager', 'frontdesk'], el: <Calendar />, group: 'Front office' },
-  { to: '/staff/front-desk', label: 'Room board', icon: 'bed', roles: ['manager', 'frontdesk'], el: <FrontDesk />, group: 'Front office' },
-  { to: '/staff/reservations', label: 'Reservations', icon: 'calendar', roles: ['manager', 'frontdesk'], el: <Reservations />, group: 'Front office' },
-  { to: '/staff/guests', label: 'Guests', icon: 'user', roles: ['manager', 'frontdesk'], el: <Guests />, group: 'Front office' },
-  { to: '/staff/housekeeping', label: 'Housekeeping', icon: 'sparkle', roles: ['manager', 'frontdesk', 'housekeeping'], el: <Housekeeping />, group: 'Front office' },
-  { to: '/staff/pos', label: 'Bar & shop till', icon: 'glass', roles: ['manager', 'bar'], el: <Pos />, group: 'Sell' },
-  { to: '/staff/other-income', label: 'Gym, pool & lounge', icon: 'wave', roles: ['manager', 'frontdesk'], el: <OtherIncome />, group: 'Sell' },
-  { to: '/staff/inventory', label: 'Stock', icon: 'box', roles: ['manager', 'bar'], el: <Inventory />, group: 'Costs' },
-  { to: '/staff/purchases', label: 'Purchases', icon: 'cart', roles: ['manager'], el: <Purchases />, group: 'Costs' },
-  { to: '/staff/expenses', label: 'Expenses', icon: 'receipt', roles: ['manager'], el: <Expenses />, group: 'Costs' },
-  { to: '/staff/close-day', label: 'Close the day', icon: 'moon', roles: ['manager'], el: <CloseDay />, group: 'Owner' },
-  { to: '/staff/reports', label: 'Profit & loss', icon: 'chart', roles: ['manager'], el: <Reports />, group: 'Owner' },
-  { to: '/staff/team', label: 'Team & activity', icon: 'users', roles: ['manager'], el: <Team />, group: 'Owner' },
-  { to: '/staff/settings', label: 'Settings', icon: 'palette', roles: ['manager'], el: <Settings />, group: 'Owner' },
-  { to: '/staff/account', label: 'My account', icon: 'lock', roles: ['manager', 'frontdesk', 'bar', 'housekeeping'], el: <Account />, group: 'You' },
-];
+const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> = {
+  '': lazy(() => import('./Dashboard')),
+  calendar: lazy(() => import('./Calendar')),
+  'front-desk': lazy(() => import('./FrontDesk')),
+  reservations: lazy(() => import('./Reservations')),
+  guests: lazy(() => import('./Guests')),
+  housekeeping: lazy(() => import('./Housekeeping')),
+  pos: lazy(() => import('./Pos')),
+  'other-income': lazy(() => import('./OtherIncome')),
+  rates: lazy(() => import('./Rates')),
+  companies: lazy(() => import('./Companies')),
+  inventory: lazy(() => import('./Inventory')),
+  purchases: lazy(() => import('./Purchases')),
+  expenses: lazy(() => import('./Expenses')),
+  'close-day': lazy(() => import('./CloseDay')),
+  reports: lazy(() => import('./Reports')),
+  team: lazy(() => import('./Team')),
+  settings: lazy(() => import('./Settings')),
+};
+const Account = lazy(() => import('./Account'));
+const Invoice = lazy(() => import('./Invoice'));
 
 export default function StaffApp() {
   const { user } = useAuth();
-  if (user === undefined) return <Loading />;
+  if (user === undefined) return <LoadingRows />;
   return (
-    <Routes>
-      <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
-      <Route path="invoice/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
-      <Route
-        path="*"
-        element={
-          user ? (
-            <DeskProvider>
-              <Shell />
-            </DeskProvider>
-          ) : (
-            <Navigate to="/staff/login" replace />
-          )
-        }
-      />
-    </Routes>
+    <Suspense fallback={<LoadingRows />}>
+      <Routes>
+        <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
+        <Route path="invoice/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
+        <Route
+          path="*"
+          element={
+            user ? (
+              <DeskProvider>
+                <Shell />
+              </DeskProvider>
+            ) : (
+              <Navigate to="/staff/login" replace />
+            )
+          }
+        />
+      </Routes>
+    </Suspense>
   );
 }
 
 function Shell() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const desk = useDesk();
-  const [open, setOpen] = useState(false);
-  const [palette, setPalette] = useState(false);
   const loc = useLocation();
+  const [palette, setPalette] = useState(false);
   const isDesk = user!.role === 'manager' || user!.role === 'frontdesk';
   const pending = useApi<{ id: number }[]>(isDesk ? `/reservations?status=pending&v=${desk.version}&p=${loc.pathname}` : null);
-  useEffect(() => setOpen(false), [loc.pathname]);
+  const items = NAV.filter((n) => n.roles.includes(user!.role));
+  const current = [...items].sort((a, b) => b.to.length - a.to.length).find((n) => loc.pathname === n.to || loc.pathname.startsWith(`${n.to}/`));
 
-  // "N" starts a new reservation from anywhere (when not typing in a field).
+  // "N" starts a new booking from anywhere, unless typing.
   useEffect(() => {
     if (!isDesk) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(el.tagName) || el.isContentEditable) return;
-      if (document.querySelector('.modal-back, .drawer, .cmdk-back')) return;
+      if (document.querySelector('[role="dialog"]')) return;
       e.preventDefault();
       desk.newReservation();
     };
@@ -93,78 +104,154 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isDesk, desk]);
 
-  const items = NAV.filter((n) => n.roles.includes(user!.role));
+  return (
+    <SidebarProvider>
+      <AppSidebar items={items} pending={pending.data?.length ?? 0} />
+      <SidebarInset>
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+          <span className="truncate text-sm font-medium">{current?.label ?? (loc.pathname.endsWith('/account') ? 'My account' : '')}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" className="hidden w-64 justify-start gap-2 text-muted-foreground sm:flex" onClick={() => setPalette(true)}>
+              <Search className="size-4" />
+              <span className="flex-1 text-left">Search…</span>
+              <kbd className="pointer-events-none rounded border bg-muted px-1.5 font-mono text-[10px] font-medium">⌘K</kbd>
+            </Button>
+            <Button variant="ghost" size="icon" className="sm:hidden" onClick={() => setPalette(true)} aria-label="Search">
+              <Search />
+            </Button>
+            <ThemeToggle />
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 p-4 md:p-6 lg:p-8" key={loc.pathname}>
+          <Suspense fallback={<LoadingRows />}>
+            <Routes>
+              {items.map((i) => {
+                const path = i.to.replace(/^\/staff\/?/, '');
+                const Page = pages[path];
+                return path ? <Route key={i.to} path={path} element={<Page />} /> : <Route key={i.to} index element={<Page />} />;
+              })}
+              <Route path="account" element={<Account />} />
+              <Route path="*" element={<Navigate to={homeFor(user!.role)} replace />} />
+            </Routes>
+          </Suspense>
+        </main>
+      </SidebarInset>
+      <CommandMenu nav={NAV} role={user!.role} open={palette} setOpen={setPalette} />
+    </SidebarProvider>
+  );
+}
+
+function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) {
+  const { user, logout } = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const loc = useLocation();
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [loc.pathname, isMobile, setOpenMobile]);
   const groups = [...new Set(items.map((i) => i.group))];
   const initials = user!.name.replace(/^(Mrs?|Ms|Dr)\.?\s+/, '').split(' ').map((p) => p[0]).slice(0, 2).join('');
-  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
   return (
-    <div className="app">
-      <div className="topbar-mobile">
-        <button className="btn sm" onClick={() => setOpen(true)} aria-label="Open menu">
-          <Icon name="menu" />
-        </button>
-        <b>Danest</b>
-        <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setPalette(true)} aria-label="Search">
-          <Icon name="search" />
-        </button>
-      </div>
-      {open && <div className="scrim" onClick={() => setOpen(false)} />}
-      <aside className={`sidebar${open ? ' open' : ''}`} aria-label="Staff navigation">
-        <NavLink to={homeFor(user!.role)} className="brand">
-          <img src="/brand/crest-128.png" alt="" />
-          <span>
-            <b>Danest</b>
-            <small>Back office</small>
-          </span>
-        </NavLink>
-        <button className="search-trigger" onClick={() => setPalette(true)}>
-          <Icon name="search" size={15} /> Search or jump to…
-          <kbd>{mac ? '⌘' : 'Ctrl'} K</kbd>
-        </button>
+    <Sidebar collapsible="icon" variant="inset">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild>
+              <NavLink to={homeFor(user!.role)}>
+                <img src="/brand/crest-128.png" alt="" className="size-8 rounded-full ring-1 ring-border" />
+                <div className="grid flex-1 text-left leading-tight">
+                  <span className="truncate text-sm font-semibold">Danest</span>
+                  <span className="truncate text-xs text-muted-foreground">Hotel &amp; Suites</span>
+                </div>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
         {groups.map((g) => (
-          <div key={g}>
-            <div className="nav-group">{g}</div>
-            {items
-              .filter((i) => i.group === g)
-              .map((i) => (
-                <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-                  <Icon name={i.icon} />
-                  {i.label}
-                  {i.to === '/staff/reservations' && !!pending.data?.length && <span className="count">{pending.data.length}</span>}
-                </NavLink>
-              ))}
-          </div>
+          <SidebarGroup key={g}>
+            <SidebarGroupLabel>{g}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {items
+                  .filter((i) => i.group === g)
+                  .map((i) => {
+                    const active = i.end ? loc.pathname === i.to : loc.pathname === i.to || loc.pathname.startsWith(`${i.to}/`);
+                    return (
+                      <SidebarMenuItem key={i.to}>
+                        <SidebarMenuButton asChild isActive={active} tooltip={i.label}>
+                          <NavLink to={i.to} end={i.end}>
+                            <i.icon />
+                            <span>{i.label}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                        {i.to === '/staff/reservations' && pending > 0 && <SidebarMenuBadge className="bg-brand text-brand-foreground">{pending}</SidebarMenuBadge>}
+                      </SidebarMenuItem>
+                    );
+                  })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         ))}
-        <div className="sidebar-foot">
-          <NavLink to="/staff/account" className="who" style={{ textDecoration: 'none' }}>
-            <div className="avatar">{initials}</div>
-            <div>
-              <b>{user!.name}</b>
-              <small>
-                {ROLE_LABELS[user!.role]}
-                {user!.mfa ? ' · 2-step on' : ''}
-              </small>
-            </div>
-          </NavLink>
-          <a className="btn ghost sm" href="/" target="_blank" rel="noopener">
-            <Icon name="arrow" size={16} /> View guest website
-          </a>
-          <button className="btn ghost sm" onClick={logout}>
-            <Icon name="logout" size={16} /> Sign out
-          </button>
-        </div>
-      </aside>
-      <main className="main" key={loc.pathname}>
-        <Routes>
-          {items.map((i) => {
-            const path = i.to.replace(/^\/staff\/?/, '');
-            return path ? <Route key={i.to} path={path} element={i.el} /> : <Route key={i.to} index element={i.el} />;
-          })}
-          <Route path="*" element={<Navigate to={homeFor(user!.role)} replace />} />
-        </Routes>
-      </main>
-      <CommandPalette nav={NAV} role={user!.role} open={palette} setOpen={setPalette} />
-    </div>
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
+                  <Avatar className="size-8 rounded-lg">
+                    <AvatarFallback className="rounded-lg text-xs font-semibold">{initials}</AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left leading-tight">
+                    <span className="truncate text-sm font-medium">{user!.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {ROLE_LABELS[user!.role]}
+                      {user!.mfa ? ' · 2-step on' : ''}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" side="top" align="start">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="text-sm font-medium">{user!.name}</div>
+                  <div className="text-xs text-muted-foreground">@{user!.username}</div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <NavLink to="/staff/account">
+                    <KeyRound /> Password & security
+                  </NavLink>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <a href="/" target="_blank" rel="noopener">
+                    <ExternalLink /> Guest website
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => logout()}>
+                  <LogOut /> Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  );
+}
+
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  return (
+    <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
+      <Sun className="hidden dark:block" />
+      <Moon className="dark:hidden" />
+    </Button>
   );
 }

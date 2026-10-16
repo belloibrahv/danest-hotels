@@ -1,9 +1,16 @@
+import { ChevronLeft, ChevronRight, Plus, Star } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReservationStatus, RoomStatus } from '../../../../shared/constants';
-import { useDesk } from '../../components/Desk';
-import { Card, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/kit';
-import { addDays, fmtDate, naira, nightsBetween, todayISO } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
+import { ErrorNote, LoadingRows, PageHeader, Section } from '@/components/app/page';
+import { ReservationStatusPill, ROOM_LABEL } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { addDays, fmtDate, naira, nightsBetween, todayISO } from '@/lib/api';
+import { useApi } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
+import { useDesk } from './desk/Desk';
 
 interface Data {
   from: string;
@@ -13,22 +20,30 @@ interface Data {
   stays: { id: number; code: string; room_id: number | null; room_type_id: number; check_in: string; check_out: string; status: ReservationStatus; guest_name: string; guest_vip: number; balance: number }[];
 }
 
-const MIN_DAY = 56;
-const ROW = 46;
-const RAIL = 150;
+const ROW = 44;
+const RAIL = 156;
 const HEAD = 52;
-const ROOM_DOT: Record<RoomStatus, string> = { available: 'var(--green)', occupied: 'var(--blue)', cleaning: 'var(--amber)', maintenance: 'var(--red)' };
+const MIN_DAY = 52;
+const BAR: Record<ReservationStatus, string> = {
+  checked_in: 'bg-primary text-primary-foreground',
+  confirmed: 'bg-brand text-brand-foreground',
+  pending: 'bg-brand-soft text-brand-ink border border-dashed border-brand',
+  checked_out: 'bg-muted text-muted-foreground',
+  cancelled: 'hidden',
+};
+const DOT: Record<RoomStatus, string> = { available: 'bg-success', occupied: 'bg-info', cleaning: 'bg-warning', maintenance: 'bg-destructive' };
 const wd = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'UTC' });
 const mon = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const isWeekend = (d: string) => [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
+/** Rooms down the side, days across the top: every stay as a bar, every empty night bookable. */
 export default function Calendar() {
   const desk = useDesk();
   const t = todayISO();
   const [from, setFrom] = useState(addDays(t, -2));
-  const [days, setDays] = useState<'14' | '21' | '28'>('14');
+  const [days, setDays] = useState('14');
   const { data, error } = useApi<Data>(`/calendar?from=${from}&days=${days}&v=${desk.version}`);
 
-  // Columns stretch to fill the screen, but never squeeze below a readable width.
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1100);
   useEffect(() => {
@@ -38,83 +53,107 @@ export default function Calendar() {
     return () => ro.disconnect();
   }, [!!data]);
   const DAY = Math.max(MIN_DAY, Math.floor((width - RAIL - 2) / Number(days)));
-
   const dates = useMemo(() => Array.from({ length: Number(days) }, (_, i) => addDays(from, i)), [from, days]);
   const rowOf = useMemo(() => new Map((data?.rooms ?? []).map((r, i) => [r.id, i])), [data]);
 
-  if (error) return <ErrorBox error={error} />;
-
-  const unassigned = data?.stays.filter((s) => !s.room_id && s.status !== 'checked_out') ?? [];
+  if (error) return <ErrorNote error={error} />;
   const end = addDays(from, Number(days));
-  const occupiedTonight = data?.stays.filter((s) => s.room_id && s.check_in <= t && (s.status === 'checked_in' || (s.status === 'confirmed' && s.check_out > t))).length ?? 0;
+  const tonight = data?.stays.filter((s) => s.room_id && s.check_in <= t && (s.status === 'checked_in' || (s.status === 'confirmed' && s.check_out > t))).length ?? 0;
+  const unassigned = data?.stays.filter((s) => !s.room_id && s.status !== 'checked_out') ?? [];
 
   return (
     <>
-      <PageHead title="Tape chart" sub={`${mon.format(new Date(`${from}T00:00:00Z`))} · ${occupiedTonight} of ${data?.rooms.length ?? '–'} rooms taken tonight. Click an empty night to book it.`}>
-        <div className="row" style={{ gap: 6 }}>
-          <button className="btn sm" onClick={() => setFrom(addDays(from, -7))} aria-label="Previous week">‹</button>
-          <button className="btn sm" onClick={() => setFrom(addDays(t, -2))}>Today</button>
-          <button className="btn sm" onClick={() => setFrom(addDays(from, 7))} aria-label="Next week">›</button>
-        </div>
-        <Tabs value={days} onChange={setDays} options={[{ value: '14', label: '2 weeks' }, { value: '21', label: '3 weeks' }, { value: '28', label: '4 weeks' }]} />
-        <button className="btn primary" onClick={() => desk.newReservation()}>
-          <Icon name="plus" size={16} /> New
-        </button>
-      </PageHead>
+      <PageHeader
+        title="Tape chart"
+        description={`${mon.format(new Date(`${from}T00:00:00Z`))} · ${tonight} of ${data?.rooms.length ?? '–'} rooms taken tonight`}
+        actions={
+          <>
+            <div className="flex items-center rounded-md border">
+              <Button variant="ghost" size="icon" className="rounded-r-none" onClick={() => setFrom(addDays(from, -7))} aria-label="Previous week">
+                <ChevronLeft />
+              </Button>
+              <Button variant="ghost" size="sm" className="rounded-none border-x" onClick={() => setFrom(addDays(t, -2))}>
+                Today
+              </Button>
+              <Button variant="ghost" size="icon" className="rounded-l-none" onClick={() => setFrom(addDays(from, 7))} aria-label="Next week">
+                <ChevronRight />
+              </Button>
+            </div>
+            <ToggleGroup type="single" variant="outline" value={days} onValueChange={(v) => v && setDays(v)}>
+              <ToggleGroupItem value="14" className="px-3">2 wk</ToggleGroupItem>
+              <ToggleGroupItem value="21" className="px-3">3 wk</ToggleGroupItem>
+              <ToggleGroupItem value="28" className="px-3">4 wk</ToggleGroupItem>
+            </ToggleGroup>
+            <Button onClick={() => desk.newReservation()}>
+              <Plus /> New
+            </Button>
+          </>
+        }
+      />
 
-      <div className="legend" style={{ marginBottom: 12 }}>
-        <span><i style={{ background: 'var(--ink)' }} /> In house</span>
-        <span><i style={{ background: 'var(--gold)' }} /> Confirmed</span>
-        <span><i style={{ background: 'var(--gold-soft)', outline: '1.5px dashed var(--gold)' }} /> Website request</span>
-        <span><i style={{ background: '#e8e2d6' }} /> Departed</span>
-        <span><i style={{ background: '#ff7a6b', width: 8, height: 8, borderRadius: 4 }} /> Owes money</span>
+      <div className="mb-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
+        {[
+          ['bg-primary', 'In house'],
+          ['bg-brand', 'Confirmed'],
+          ['bg-brand-soft border border-dashed border-brand', 'Website request'],
+          ['bg-muted border', 'Departed'],
+        ].map(([c, l]) => (
+          <span key={l} className="flex items-center gap-1.5">
+            <i className={cn('inline-block h-2.5 w-5 rounded-sm', c)} /> {l}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <i className="size-2 rounded-full bg-destructive" /> Owes money
+        </span>
+        <span className="ml-auto hidden sm:inline">Click an empty night to book it</span>
       </div>
 
       {!data ? (
-        <div ref={wrap}><Card><Loading /></Card></div>
+        <div ref={wrap}>
+          <LoadingRows rows={10} />
+        </div>
       ) : (
-        <div className="card tape" ref={wrap} style={{ ['--day' as string]: `${DAY}px` } as React.CSSProperties}>
-          <div className="tape-grid" style={{ gridTemplateColumns: `${RAIL}px repeat(${days}, ${DAY}px)` }}>
-            <div className="tape-corner">Room</div>
-            {dates.map((d) => {
-              const w = new Date(`${d}T00:00:00Z`).getUTCDay();
-              return (
-                <div key={d} className={`tape-head${w === 0 || w === 6 ? ' weekend' : ''}${d === t ? ' today' : ''}`}>
-                  <div>
-                    {wd.format(new Date(`${d}T00:00:00Z`))}
-                    <b>{Number(d.slice(8))}</b>
-                  </div>
-                </div>
-              );
-            })}
+        <div ref={wrap} className="relative max-h-[calc(100svh-230px)] overflow-auto rounded-xl border bg-card shadow-xs">
+          <div className="relative grid min-w-max" style={{ gridTemplateColumns: `${RAIL}px repeat(${days}, ${DAY}px)` }}>
+            <div className="sticky top-0 left-0 z-30 flex h-[52px] items-center border-r border-b bg-muted/60 px-4 text-xs font-medium text-muted-foreground backdrop-blur">Room</div>
+            {dates.map((d) => (
+              <div key={d} className={cn('sticky top-0 z-20 flex h-[52px] flex-col items-center justify-center border-b bg-muted/60 text-[11px] text-muted-foreground backdrop-blur', isWeekend(d) && 'bg-muted', d === t && 'text-foreground')}>
+                <span>{wd.format(new Date(`${d}T00:00:00Z`))}</span>
+                <span className={cn('mt-0.5 flex size-6 items-center justify-center rounded-full text-sm font-semibold text-foreground tabular-nums', d === t && 'bg-brand text-brand-foreground')}>{Number(d.slice(8))}</span>
+              </div>
+            ))}
+
             {data.rooms.map((r) => (
               <Row key={r.id} room={r} dates={dates} today={t} onBook={(d) => desk.newReservation({ roomId: r.id, typeId: r.room_type_id, checkIn: d, checkOut: addDays(d, 1), walkIn: d === t && r.status === 'available' })} />
             ))}
 
-            {/* the "now" line sits at the middle of today */}
-            {t >= from && t < end && <div className="tape-now" style={{ left: RAIL + nightsBetween(from, t) * DAY + DAY / 2 }} />}
+            {t >= from && t < end && <div className="pointer-events-none absolute bottom-0 z-[5] w-px bg-destructive/70" style={{ top: HEAD, left: RAIL + nightsBetween(from, t) * DAY + DAY / 2 }} />}
 
             {data.stays.map((s) => {
               const row = s.room_id ? rowOf.get(s.room_id) : undefined;
-              if (row === undefined) return null;
-              // Bars run from the middle of the arrival day to the middle of the departure day, like a paper tape chart.
-              const startCol = nightsBetween(from, s.check_in);
-              const endCol = nightsBetween(from, s.check_out);
-              const left = RAIL + Math.max(startCol * DAY + DAY / 2, 0);
-              const right = RAIL + Math.min(endCol * DAY + DAY / 2, Number(days) * DAY);
+              if (row === undefined || s.status === 'cancelled') return null;
+              const left = RAIL + Math.max(nightsBetween(from, s.check_in) * DAY + DAY / 2, 0);
+              const right = RAIL + Math.min(nightsBetween(from, s.check_out) * DAY + DAY / 2, Number(days) * DAY);
               if (right <= left) return null;
+              const owes = s.balance > 0 && (s.status === 'checked_in' || s.status === 'checked_out');
               return (
-                <button
-                  key={s.id}
-                  className={`tape-bar ${s.status}`}
-                  style={{ left: left + 2, width: right - left - 4, top: HEAD + row * ROW + 6 }}
-                  onClick={() => desk.openReservation(s.id)}
-                  title={`${s.guest_name} · ${fmtDate(s.check_in)} → ${fmtDate(s.check_out)}${s.balance > 0 ? ` · owes ${naira(s.balance)}` : ''}`}
-                >
-                  {s.balance > 0 && s.status !== 'pending' && s.status !== 'confirmed' && <span className="owe" />}
-                  {!!s.guest_vip && <span aria-label="VIP">★</span>}
-                  {s.guest_name}
-                </button>
+                <Tooltip key={s.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      className={cn('absolute z-10 flex items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-xs font-medium whitespace-nowrap shadow-xs transition-[transform,box-shadow] hover:z-20 hover:-translate-y-px hover:shadow-md', BAR[s.status])}
+                      style={{ left: left + 2, width: right - left - 4, top: HEAD + row * ROW + 7, height: ROW - 14 }}
+                      onClick={() => desk.openReservation(s.id)}
+                    >
+                      {owes && <span className="size-1.5 shrink-0 rounded-full bg-destructive ring-2 ring-white/70" />}
+                      {!!s.guest_vip && <Star className="size-3 shrink-0 fill-current" />}
+                      <span className="truncate">{s.guest_name}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {s.guest_name} · {fmtDate(s.check_in)} → {fmtDate(s.check_out)}
+                    {owes ? ` · owes ${naira(s.balance)}` : ''}
+                  </TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
@@ -122,22 +161,20 @@ export default function Calendar() {
       )}
 
       {unassigned.length > 0 && (
-        <Card title="Not yet given a room" sub="Confirmed bookings and website requests in this period. Open one to assign a room." pad={false}>
-          <div className="table-wrap">
-            <table className="t">
-              <tbody>
-                {unassigned.map((s) => (
-                  <tr key={s.id} className="click" onClick={() => desk.openReservation(s.id)}>
-                    <td className="strong">{s.guest_name}</td>
-                    <td className="num">{fmtDate(s.check_in)} → {fmtDate(s.check_out)}</td>
-                    <td>{data?.rooms.find((r) => r.room_type_id === s.room_type_id)?.room_type}</td>
-                    <td><StatusBadge status={s.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <Section title="Not yet in a room" description="Confirmed bookings and website requests in this period. Open one to assign a room." className="mt-6" flush>
+          <Table>
+            <TableBody>
+              {unassigned.map((s) => (
+                <TableRow key={s.id} className="cursor-pointer" onClick={() => desk.openReservation(s.id)}>
+                  <TableCell className="pl-5 font-medium">{s.guest_name}</TableCell>
+                  <TableCell className="tabular-nums">{fmtDate(s.check_in)} → {fmtDate(s.check_out)}</TableCell>
+                  <TableCell className="text-muted-foreground">{data?.rooms.find((r) => r.room_type_id === s.room_type_id)?.room_type}</TableCell>
+                  <TableCell className="pr-5 text-right"><ReservationStatusPill status={s.status} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
       )}
     </>
   );
@@ -146,22 +183,24 @@ export default function Calendar() {
 function Row({ room, dates, today, onBook }: { room: Data['rooms'][number]; dates: string[]; today: string; onBook: (d: string) => void }) {
   return (
     <>
-      <div className="tape-room">
-        <b>{room.number}</b>
-        <span className="muted" style={{ fontSize: 12 }}>{room.room_type.replace(' Room', '').replace(' Suite', ' ste')}</span>
-        <span className="dot" style={{ background: ROOM_DOT[room.status] }} title={room.status} />
+      <div className="sticky left-0 z-[15] flex h-11 items-center gap-2.5 border-r border-b bg-card px-4" title={ROOM_LABEL[room.status]}>
+        <span className="font-mono text-sm font-semibold">{room.number}</span>
+        <span className="truncate text-xs text-muted-foreground">{room.room_type}</span>
+        <span className={cn('ml-auto size-2 shrink-0 rounded-full', DOT[room.status])} />
       </div>
       {dates.map((d) => {
-        const w = new Date(`${d}T00:00:00Z`).getUTCDay();
         const blocked = room.status === 'maintenance' && d <= addDays(today, 2);
         const past = d < today;
         return (
           <div
             key={d}
-            className={`tape-cell${w === 0 || w === 6 ? ' weekend' : ''}${d === today ? ' today' : ''}${blocked ? ' blocked' : ''}`}
-            style={past ? { cursor: 'default', background: '#faf8f3' } : undefined}
+            className={cn(
+              'h-11 border-r border-b border-border/60',
+              isWeekend(d) && 'bg-muted/40',
+              d === today && 'bg-brand-soft/40',
+              past ? 'bg-muted/30' : blocked ? 'cursor-not-allowed bg-[repeating-linear-gradient(135deg,transparent,transparent_5px,var(--danger-soft)_5px,var(--danger-soft)_10px)]' : 'cursor-cell hover:bg-accent',
+            )}
             onClick={() => !blocked && !past && onBook(d)}
-            title={blocked ? 'Out of order' : past ? undefined : `Book room ${room.number} from ${fmtDate(d)}`}
           />
         );
       })}

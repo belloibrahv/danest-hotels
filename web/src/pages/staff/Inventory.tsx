@@ -1,189 +1,225 @@
+import { Package, Plus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/kit';
-import { api, naira, pct } from '../../lib/api';
-import { can, useAuth } from '../../lib/auth';
-import { useApi } from '../../lib/hooks';
+import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
+import { Field, MoneyInput, SelectField } from '@/components/app/form';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, StatCard } from '@/components/app/page';
+import { StatusPill } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { api, naira, pct } from '@/lib/api';
+import { can, useAuth } from '@/lib/auth';
+import { useApi, useSubmit } from '@/lib/hooks';
 import type { Product } from './Pos';
 
 export default function Inventory() {
   const { user } = useAuth();
-  const isManager = can(user, 'manager');
-  const { data, error, reload } = useApi<Product[]>(isManager ? '/products?all=1' : '/products');
-  const [cat, setCat] = useState<'all' | 'drinks' | 'confectionery' | 'low'>('all');
+  const manager = can(user, 'manager');
+  const { data, error, reload } = useApi<Product[]>(manager ? '/products?all=1' : '/products');
+  const [cat, setCat] = useState('all');
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
-  const [adjusting, setAdjusting] = useState<Product | null>(null);
+  const [counting, setCounting] = useState<Product | null>(null);
 
-  if (error) return <ErrorBox error={error} />;
-  if (!data) return <Loading />;
-  const rows = data.filter((p) => (cat === 'all' ? true : cat === 'low' ? p.active && p.stock <= p.reorder_level : p.category === cat));
+  if (error) return <ErrorNote error={error} />;
+  if (!data) return <LoadingRows rows={8} />;
   const active = data.filter((p) => p.active);
+  const low = active.filter((p) => p.stock <= p.reorder_level);
   const value = active.reduce((a, p) => a + p.stock * (p.avg_cost ?? 0), 0);
   const retail = active.reduce((a, p) => a + p.stock * p.price, 0);
-  const low = active.filter((p) => p.stock <= p.reorder_level).length;
+  const rows = data.filter((p) => (cat === 'all' ? true : cat === 'low' ? p.active && p.stock <= p.reorder_level : p.category === cat));
 
   return (
     <>
-      <PageHead title="Stock" sub="Drinks and confectionery on hand. Stock goes up with purchases and down with every sale.">
-        {isManager && (
-          <button className="btn primary" onClick={() => setEditing('new')}>
-            <Icon name="plus" size={16} /> Add item
-          </button>
-        )}
-      </PageHead>
-
-      {isManager && (
-        <div className="cards cols-4" style={{ marginBottom: 16 }}>
-          <Stat label="Items on sale" value={active.length} />
-          <Stat label="Stock value at cost" value={naira(value)} foot="What you paid for what's on the shelf" />
-          <Stat label="Stock value at selling price" value={naira(retail)} foot={`${naira(retail - value)} potential gross profit`} />
-          <Stat label="Running low" value={low} foot="At or below reorder level" />
+      <PageHeader
+        title="Stock"
+        description="Drinks and confectionery on hand. Purchases add stock; every sale takes it away."
+        actions={
+          manager && (
+            <>
+              <Button variant="outline" asChild>
+                <Link to="/staff/purchases">Record a purchase</Link>
+              </Button>
+              <Button onClick={() => setEditing('new')}>
+                <Plus /> Add item
+              </Button>
+            </>
+          )
+        }
+      />
+      {manager && data.length > 0 && (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <StatCard label="Items on sale" value={active.length} />
+          <StatCard label="Stock at cost" value={<Money value={value} />} hint="What you paid for what's on the shelf" />
+          <StatCard label="Stock at selling price" value={<Money value={retail} />} hint={`${naira(retail - value)} potential margin`} />
+          <StatCard label="Running low" value={low.length} hint="At or below reorder level" />
         </div>
       )}
-
-      <div className="row" style={{ marginBottom: 12 }}>
-        <Tabs value={cat} onChange={setCat} options={[{ value: 'all', label: 'All' }, { value: 'drinks', label: 'Drinks' }, { value: 'confectionery', label: 'Confectionery' }, { value: 'low', label: `Running low (${low})` }]} />
-      </div>
-
-      <Card pad={false}>
+      <Tabs value={cat} onValueChange={setCat} className="mb-4">
+        <TabsList className="h-9">
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="drinks">Drinks</TabsTrigger>
+          <TabsTrigger value="confectionery">Confectionery</TabsTrigger>
+          <TabsTrigger value="low">Running low ({low.length})</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <Card className="gap-0 overflow-hidden py-0 shadow-xs">
         {data.length === 0 ? (
-          <EmptyState illo={<EmptyIllo kind="glass" />} title="No bar or shop items yet">
-            {isManager ? <>Add each drink and snack with its selling price, then record a <a href="/staff/purchases">purchase</a> to put your opening stock on the shelf.</> : 'Ask the manager to add the items you sell.'}
+          <EmptyState icon={Package} title="No items yet" action={manager && <Button size="sm" onClick={() => setEditing('new')}><Plus /> Add the first item</Button>}>
+            {manager ? 'Add each drink and snack with its selling price, then record a purchase for your opening stock.' : 'Ask the manager to add the items you sell.'}
           </EmptyState>
         ) : (
-        <div className="table-wrap">
-          <table className="t">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th className="r">Selling price</th>
-                {isManager && <th className="r">Avg. cost</th>}
-                {isManager && <th className="r">Margin</th>}
-                <th className="r">In stock</th>
-                <th>Status</th>
-                {isManager && <th />}
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-5">Item</TableHead>
+                <TableHead className="text-right">Price</TableHead>
+                {manager && <TableHead className="text-right">Avg. cost</TableHead>}
+                {manager && <TableHead className="hidden text-right md:table-cell">Margin</TableHead>}
+                <TableHead className="text-right">In stock</TableHead>
+                <TableHead>Status</TableHead>
+                {manager && <TableHead className="pr-5" />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((p) => (
-                <tr key={p.id} style={p.active ? undefined : { opacity: 0.5 }}>
-                  <td>
-                    <div className="strong">{p.name}</div>
-                    <div className="muted" style={{ fontSize: 12.5, textTransform: 'capitalize' }}>{p.category} · per {p.unit}</div>
-                  </td>
-                  <td className="r">{naira(p.price)}</td>
-                  {isManager && <td className="r">{naira(p.avg_cost ?? 0)}</td>}
-                  {isManager && <td className="r">{p.price ? pct((p.price - (p.avg_cost ?? 0)) / p.price) : '—'}</td>}
-                  <td className="r strong">{p.stock}</td>
-                  <td>
-                    {!p.active ? <span className="badge">Not on sale</span> : p.stock === 0 ? <span className="badge red">Out of stock</span> : p.stock <= p.reorder_level ? <span className="badge amber">Reorder</span> : <span className="badge green">OK</span>}
-                  </td>
-                  {isManager && (
-                    <td className="r" style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn sm ghost" onClick={() => setAdjusting(p)}>Adjust</button>
-                      <button className="btn sm ghost" onClick={() => setEditing(p)}>Edit</button>
-                    </td>
+                <TableRow key={p.id} className={p.active ? '' : 'opacity-50'}>
+                  <TableCell className="pl-5">
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-muted-foreground capitalize">
+                      {p.category} · per {p.unit}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Money value={p.price} />
+                  </TableCell>
+                  {manager && (
+                    <TableCell className="text-right text-muted-foreground">
+                      <Money value={p.avg_cost ?? 0} />
+                    </TableCell>
                   )}
-                </tr>
+                  {manager && <TableCell className="hidden text-right tabular-nums md:table-cell">{p.price ? pct((p.price - (p.avg_cost ?? 0)) / p.price) : '—'}</TableCell>}
+                  <TableCell className="text-right font-semibold tabular-nums">{p.stock}</TableCell>
+                  <TableCell>
+                    {!p.active ? <StatusPill>Not on sale</StatusPill> : p.stock === 0 ? <StatusPill tone="danger">Out</StatusPill> : p.stock <= p.reorder_level ? <StatusPill tone="warning">Reorder</StatusPill> : <StatusPill tone="success">OK</StatusPill>}
+                  </TableCell>
+                  {manager && (
+                    <TableCell className="pr-5 text-right whitespace-nowrap">
+                      <Button variant="ghost" size="sm" onClick={() => setCounting(p)}>
+                        Count
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
+                        Edit
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
         )}
       </Card>
-
-      {editing && <ProductForm product={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), reload())} />}
-      {adjusting && <AdjustForm product={adjusting} onClose={() => setAdjusting(null)} onSaved={() => (setAdjusting(null), reload())} />}
+      <ProductDialog product={editing} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), reload())} />
+      <CountDialog product={counting} onClose={() => setCounting(null)} onSaved={() => (setCounting(null), reload())} />
     </>
   );
 }
 
-function ProductForm({ product, onClose, onSaved }: { product: Product | null; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({
-    name: product?.name ?? '',
-    category: product?.category ?? 'drinks',
-    unit: product?.unit ?? 'bottle',
-    price: String(product?.price ?? ''),
-    reorder_level: String(product?.reorder_level ?? 12),
-    active: product ? !!product.active : true,
-  });
+function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new' | null; onClose: () => void; onSaved: () => void }) {
+  const p = product && product !== 'new' ? product : null;
+  const init = () => ({ name: p?.name ?? '', category: p?.category ?? 'drinks', unit: p?.unit ?? 'bottle', price: String(p?.price ?? ''), reorder_level: String(p?.reorder_level ?? 12), active: p ? !!p.active : true });
+  const [f, setF] = useState(init);
+  const [key, setKey] = useState<typeof product>(null);
+  if (key !== product) (setKey(product), setF(init()));
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      const body = { ...f, price: Number(f.price), reorder_level: Number(f.reorder_level) };
-      await api(product ? `/products/${product.id}` : '/products', { method: product ? 'PATCH' : 'POST', body });
-      toast(product ? 'Item updated' : 'Item added — record a purchase to put it in stock');
+      await api(p ? `/products/${p.id}` : '/products', { method: p ? 'PATCH' : 'POST', body: { ...f, price: Number(f.price), reorder_level: Number(f.reorder_level) } });
+      toast.success(p ? 'Item updated' : 'Item added', { description: p ? undefined : 'Record a purchase to put it in stock.' });
       onSaved();
     });
   };
   return (
-    <Modal title={product ? `Edit ${product.name}` : 'Add an item'} onClose={onClose}>
-      <form className="stack" onSubmit={onSubmit}>
-        <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} /></Field>
-        <div className="grid-2">
-          <Field label="Category">
-            <select className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value as Product['category'] })}>
-              <option value="drinks">Drinks</option>
-              <option value="confectionery">Confectionery</option>
-            </select>
-          </Field>
-          <Field label="Sold per"><input className="input" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} required maxLength={20} placeholder="bottle, can, pack…" /></Field>
-        </div>
-        <div className="grid-2">
-          <Field label="Selling price (₦)"><input className="input num" inputMode="numeric" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value.replace(/\D/g, '') })} required /></Field>
-          <Field label="Reorder when stock reaches"><input className="input num" inputMode="numeric" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value.replace(/\D/g, '') })} required /></Field>
-        </div>
-        {product && (
-          <label className="row" style={{ fontWeight: 600 }}>
-            <input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> On sale at the till
-          </label>
-        )}
-        <ErrorBox error={error} />
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy}>Save</button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{p ? `Edit ${p.name}` : 'Add an item'}</DialogTitle>
+        </DialogHeader>
+        <form id="product" className="grid gap-4" onSubmit={onSubmit}>
+          <Field label="Name"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Category">
+              <SelectField value={f.category} onChange={(v) => setF({ ...f, category: v as Product['category'] })} options={[{ value: 'drinks', label: 'Drinks' }, { value: 'confectionery', label: 'Confectionery' }]} />
+            </Field>
+            <Field label="Sold per"><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} required maxLength={20} placeholder="bottle, can, pack" /></Field>
+            <Field label="Selling price"><MoneyInput value={f.price} onChange={(v) => setF({ ...f, price: v })} required /></Field>
+            <Field label="Reorder at"><Input inputMode="numeric" className="tabular-nums" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value.replace(/\D/g, '') })} required /></Field>
+          </div>
+          {p && (
+            <label className="flex items-center gap-3 text-sm">
+              <Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> On sale at the till
+            </label>
+          )}
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="product" disabled={busy}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function AdjustForm({ product, onClose, onSaved }: { product: Product; onClose: () => void; onSaved: () => void }) {
-  const [counted, setCounted] = useState(String(product.stock));
+function CountDialog({ product, onClose, onSaved }: { product: Product | null; onClose: () => void; onSaved: () => void }) {
+  const [counted, setCounted] = useState('');
   const [reason, setReason] = useState('');
+  const [key, setKey] = useState<Product | null>(null);
+  if (key !== product) (setKey(product), setCounted(product ? String(product.stock) : ''), setReason(''));
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
-  const change = Number(counted || 0) - product.stock;
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    submit(async () => {
-      await api(`/products/${product.id}/adjust`, { body: { change, reason } });
-      toast('Stock corrected and logged');
-      onSaved();
-    });
-  };
+  const change = product ? Number(counted || 0) - product.stock : 0;
   return (
-    <Modal title={`Count ${product.name}`} onClose={onClose}>
-      <form className="stack" onSubmit={onSubmit}>
-        <p className="muted">For breakages, spoilage or a stock count that doesn't match. Every adjustment is logged with your name.</p>
-        <div className="grid-2">
-          <Field label="System says"><input className="input num" value={product.stock} disabled /></Field>
-          <Field label="Actually counted"><input className="input num" inputMode="numeric" value={counted} onChange={(e) => setCounted(e.target.value.replace(/\D/g, ''))} required /></Field>
-        </div>
-        {change !== 0 && (
-          <div className={`badge ${change < 0 ? 'red' : 'green'}`} style={{ justifySelf: 'start' }}>
-            {change > 0 ? '+' : ''}{change} · {naira(Math.abs(change) * (product.avg_cost ?? 0))} at cost
+    <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Count {product?.name}</DialogTitle>
+          <DialogDescription>For breakages, spoilage or a count that doesn't match. Logged with your name.</DialogDescription>
+        </DialogHeader>
+        <form
+          id="count"
+          className="grid gap-4"
+          onSubmit={(e) => (
+            e.preventDefault(),
+            submit(async () => {
+              await api(`/products/${product!.id}/adjust`, { body: { change, reason } });
+              toast.success('Stock corrected');
+              onSaved();
+            })
+          )}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="System says"><Input value={product?.stock ?? ''} disabled className="font-mono" /></Field>
+            <Field label="Actually counted"><Input inputMode="numeric" className="tabular-nums" value={counted} onChange={(e) => setCounted(e.target.value.replace(/\D/g, ''))} required autoFocus /></Field>
           </div>
-        )}
-        <Field label="Reason"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} required maxLength={200} placeholder="e.g. 2 bottles broken during delivery" /></Field>
-        <ErrorBox error={error} />
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy || change === 0}>Save adjustment</button>
-        </div>
-      </form>
-    </Modal>
+          {change !== 0 && (
+            <StatusPill tone={change < 0 ? 'danger' : 'success'}>
+              {change > 0 ? '+' : ''}
+              {change} · {naira(Math.abs(change) * (product?.avg_cost ?? 0))} at cost
+            </StatusPill>
+          )}
+          <Field label="Reason"><Input value={reason} onChange={(e) => setReason(e.target.value)} required maxLength={200} placeholder="2 bottles broken during delivery" /></Field>
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="count" disabled={busy || change === 0}>Save count</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

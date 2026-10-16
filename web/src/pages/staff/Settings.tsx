@@ -1,31 +1,40 @@
+import { BedDouble, CreditCard, MessageCircle, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { FACILITIES, FACILITY_LABELS, type Facility, type HotelSettings } from '../../../../shared/constants';
-import { RoomScene } from '../../components/illustrations';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/kit';
-import { api, naira } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
-
-type Tab = 'hotel' | 'rooms' | 'facilities';
+import { Field, MoneyInput, SelectField, useConfirm } from '@/components/app/form';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section } from '@/components/app/page';
+import { StatusPill } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { api, naira } from '@/lib/api';
+import { useApi, useSubmit } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
 
 export default function Settings() {
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') as Tab) ?? 'hotel';
+  const tab = params.get('tab') ?? 'hotel';
   return (
     <>
-      <PageHead title="Settings" sub="How the hotel is set up: details guests see, rooms and prices, and the facility price list." />
-      <div style={{ marginBottom: 16 }}>
-        <Tabs
-          value={tab}
-          onChange={(t) => setParams({ tab: t })}
-          options={[
-            { value: 'hotel', label: 'Hotel details' },
-            { value: 'rooms', label: 'Rooms & rates' },
-            { value: 'facilities', label: 'Gym, pool & lounge prices' },
-          ]}
-        />
-      </div>
-      {tab === 'hotel' ? <HotelForm /> : tab === 'rooms' ? <RoomsSettings /> : <FacilityPrices />}
+      <PageHeader title="Settings" description="How the hotel is set up: details guests see, rooms and prices, online payments." />
+      <Tabs value={tab} onValueChange={(t) => setParams({ tab: t })}>
+        <TabsList className="mb-6 h-9 flex-wrap">
+          <TabsTrigger value="hotel">Hotel details</TabsTrigger>
+          <TabsTrigger value="rooms">Rooms & base rates</TabsTrigger>
+          <TabsTrigger value="facilities">Gym, pool & lounge prices</TabsTrigger>
+          <TabsTrigger value="payments">Payments & messages</TabsTrigger>
+        </TabsList>
+        <TabsContent value="hotel"><HotelForm /></TabsContent>
+        <TabsContent value="rooms"><RoomsSettings /></TabsContent>
+        <TabsContent value="facilities"><FacilityPrices /></TabsContent>
+        <TabsContent value="payments"><Integrations /></TabsContent>
+      </Tabs>
     </>
   );
 }
@@ -36,53 +45,48 @@ function HotelForm() {
   const { data, reload } = useApi<HotelSettings>('/settings');
   const [f, setF] = useState<HotelSettings | null>(null);
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
   useEffect(() => {
     if (data) setF(data);
   }, [data]);
-  if (!f) return <Loading />;
+  if (!f) return <LoadingRows />;
   const set = <K extends keyof HotelSettings>(k: K, v: HotelSettings[K]) => setF({ ...f, [k]: v });
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
       await api('/settings', { method: 'PUT', body: { ...f, highlights: f.highlights.filter((h) => h.title.trim()) } });
-      toast('Saved — the website and invoices now use these details');
+      toast.success('Saved', { description: 'The website, invoices and messages now use these details.' });
       reload();
     });
   };
   return (
-    <form className="cards cols-main" style={{ alignItems: 'start' }} onSubmit={onSubmit}>
-      <div className="stack">
-        <Card title="Who you are" sub="Shown on the website, invoices and receipts">
-          <div className="stack">
-            <div className="grid-2">
-              <Field label="Hotel name"><input className="input" value={f.name} onChange={(e) => set('name', e.target.value)} required maxLength={80} /></Field>
-              <Field label="Tagline"><input className="input" value={f.tagline} onChange={(e) => set('tagline', e.target.value)} maxLength={120} /></Field>
-            </div>
-            <Field label="Address"><input className="input" value={f.address} onChange={(e) => set('address', e.target.value)} required maxLength={200} /></Field>
-            <div className="grid-3">
-              <Field label="Front desk phone" hint="Guests call this to confirm"><input className="input" type="tel" value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="080…" /></Field>
-              <Field label="WhatsApp (optional)"><input className="input" type="tel" value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} /></Field>
-              <Field label="Email (optional)"><input className="input" type="email" value={f.email} onChange={(e) => set('email', e.target.value)} /></Field>
-            </div>
-            <div className="grid-2">
-              <Field label="Check-in from"><input className="input" type="time" value={f.check_in_time} onChange={(e) => set('check_in_time', e.target.value)} required /></Field>
-              <Field label="Check-out by"><input className="input" type="time" value={f.check_out_time} onChange={(e) => set('check_out_time', e.target.value)} required /></Field>
+    <form className="grid items-start gap-6 xl:grid-cols-[1.4fr_1fr]" onSubmit={onSubmit}>
+      <div className="space-y-6">
+        <Section title="Identity & contact" description="Shown on the website, invoices, receipts and guest messages">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Hotel name"><Input value={f.name} onChange={(e) => set('name', e.target.value)} required maxLength={80} /></Field>
+            <Field label="Tagline"><Input value={f.tagline} onChange={(e) => set('tagline', e.target.value)} maxLength={120} /></Field>
+            <Field label="Address" className="sm:col-span-2"><Input value={f.address} onChange={(e) => set('address', e.target.value)} required maxLength={200} /></Field>
+            <Field label="Front desk phone" hint="Guests call this to confirm"><Input type="tel" value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="080…" /></Field>
+            <Field label="WhatsApp"><Input type="tel" value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} placeholder="Optional" /></Field>
+            <Field label="Email"><Input type="email" value={f.email} onChange={(e) => set('email', e.target.value)} placeholder="Optional" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Check-in from"><Input type="time" value={f.check_in_time} onChange={(e) => set('check_in_time', e.target.value)} required /></Field>
+              <Field label="Check-out by"><Input type="time" value={f.check_out_time} onChange={(e) => set('check_out_time', e.target.value)} required /></Field>
             </div>
           </div>
-        </Card>
-        <Card title="Invoices" sub="Printed on every guest bill">
-          <div className="stack">
-            <Field label="Bank details for transfers" hint="Only printed on invoices — never shown on the website">
-              <textarea className="input" value={f.bank_details} onChange={(e) => set('bank_details', e.target.value)} maxLength={300} placeholder="Bank name · Account name · Account number" />
+        </Section>
+        <Section title="Invoices">
+          <div className="grid gap-4">
+            <Field label="Bank details for transfers" hint="Printed on invoices and balance reminders — never on the website">
+              <Textarea value={f.bank_details} onChange={(e) => set('bank_details', e.target.value)} maxLength={300} rows={2} placeholder="Bank · Account name · Account number" />
             </Field>
-            <Field label="Closing note"><input className="input" value={f.invoice_note} onChange={(e) => set('invoice_note', e.target.value)} maxLength={300} /></Field>
+            <Field label="Closing note"><Input value={f.invoice_note} onChange={(e) => set('invoice_note', e.target.value)} maxLength={300} /></Field>
           </div>
-        </Card>
+        </Section>
       </div>
-      <div className="stack">
-        <Card title="Website highlights" sub="Up to 4 promises under the booking bar. Only write what is true every day.">
-          <div className="stack">
+      <div className="space-y-6">
+        <Section title="Website highlights" description="Up to four promises under the booking bar. Only what is true every day.">
+          <div className="grid gap-3">
             {[0, 1, 2, 3].map((i) => {
               const h = f.highlights[i] ?? { title: '', text: '' };
               const upd = (patch: Partial<typeof h>) => {
@@ -91,16 +95,16 @@ function HotelForm() {
                 set('highlights', next);
               };
               return (
-                <div className="grid-2" key={i}>
-                  <Field label={`Highlight ${i + 1}`}><input className="input" value={h.title} onChange={(e) => upd({ title: e.target.value })} maxLength={40} placeholder={['Gated & secure', 'Power that stays on', 'Free Wi-Fi', 'Pay on arrival'][i]} /></Field>
-                  <Field label="Detail"><input className="input" value={h.text} onChange={(e) => upd({ text: e.target.value })} maxLength={90} /></Field>
+                <div key={i} className="grid grid-cols-[1fr_1.3fr] gap-2">
+                  <Input value={h.title} onChange={(e) => upd({ title: e.target.value })} maxLength={40} placeholder={['Gated & secure', 'Free Wi-Fi', 'Pay on arrival', 'On-site parking'][i]} aria-label={`Highlight ${i + 1}`} />
+                  <Input value={h.text} onChange={(e) => upd({ text: e.target.value })} maxLength={90} placeholder="Detail" aria-label={`Highlight ${i + 1} detail`} />
                 </div>
               );
             })}
           </div>
-        </Card>
-        <ErrorBox error={error} />
-        <button className="btn primary lg" disabled={busy}>{busy ? 'Saving…' : 'Save hotel details'}</button>
+        </Section>
+        <ErrorNote error={error} />
+        <Button size="lg" className="w-full" disabled={busy}>{busy ? 'Saving…' : 'Save hotel details'}</Button>
       </div>
     </form>
   );
@@ -108,7 +112,7 @@ function HotelForm() {
 
 // ---------------------------------------------------------------------------
 
-interface RoomType { id: number; name: string; slug: string; rate: number; capacity: number; description: string; amenities: string[]; active: number; rooms: number }
+interface RoomType { id: number; name: string; rate: number; capacity: number; description: string; amenities: string[]; active: number; rooms: number }
 interface Room { id: number; number: string; floor: number; status: string; active: number; room_type_id: number; room_type: string; bookings: number }
 
 function RoomsSettings() {
@@ -118,191 +122,188 @@ function RoomsSettings() {
   const [adding, setAdding] = useState(false);
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const reload = () => (types.reload(), rooms.reload());
-
-  if (!types.data || !rooms.data) return <Loading />;
+  if (!types.data || !rooms.data) return <LoadingRows />;
   return (
-    <div className="stack" style={{ gap: 16 }}>
-      <Card
-        title="Room types & nightly rates"
-        sub="Changing a rate affects new bookings only — existing bookings keep the rate they were sold at."
-        action={<button className="btn primary sm" onClick={() => setEditType('new')}><Icon name="plus" size={14} /> Add room type</button>}
-        pad={false}
+    <div className="space-y-6">
+      <Section
+        title="Room types & base rates"
+        description="Base rate per night. Weekend and seasonal prices are set under Rates & seasons. Existing bookings keep their price."
+        action={<Button size="sm" onClick={() => setEditType('new')}><Plus /> Room type</Button>}
+        flush
       >
         {types.data.length === 0 ? (
-          <div className="empty">
-            <div style={{ width: 220, height: 130, margin: '0 auto 12px', borderRadius: 12, overflow: 'hidden' }}><RoomScene variant="deluxe" /></div>
-            <b style={{ color: 'var(--ink)' }}>Start with your room types</b>
-            <p>For example “Standard Room — ₦25,000” and “Executive Suite — ₦55,000”. Then add the room numbers for each.</p>
-          </div>
+          <EmptyState icon={BedDouble} title="Start with your room types" action={<Button size="sm" onClick={() => setEditType('new')}><Plus /> Add a room type</Button>}>
+            For example “Standard Room — ₦25,000” and “Executive Suite — ₦55,000”. Then add room numbers.
+          </EmptyState>
         ) : (
-          <div className="table-wrap">
-            <table className="t">
-              <thead><tr><th>Room type</th><th className="r">Rate / night</th><th className="r">Sleeps</th><th className="r">Rooms</th><th>On sale</th><th /></tr></thead>
-              <tbody>
-                {types.data.map((t) => (
-                  <tr key={t.id} style={t.active ? undefined : { opacity: 0.55 }}>
-                    <td><b>{t.name}</b><div className="muted" style={{ fontSize: 12.5 }}>{t.amenities.slice(0, 4).join(' · ')}</div></td>
-                    <td className="r strong">{naira(t.rate)}</td>
-                    <td className="r">{t.capacity}</td>
-                    <td className="r">{t.rooms}</td>
-                    <td>{t.active ? <span className="badge green">Yes</span> : <span className="badge">Hidden</span>}</td>
-                    <td className="r"><button className="btn ghost sm" onClick={() => setEditType(t)}>Edit</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-5">Room type</TableHead>
+                <TableHead className="text-right">Base rate</TableHead>
+                <TableHead className="text-right">Sleeps</TableHead>
+                <TableHead className="text-right">Rooms</TableHead>
+                <TableHead>On sale</TableHead>
+                <TableHead className="pr-5" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {types.data.map((t) => (
+                <TableRow key={t.id} className={t.active ? '' : 'opacity-55'}>
+                  <TableCell className="pl-5"><div className="font-medium">{t.name}</div><div className="max-w-md truncate text-xs text-muted-foreground">{t.amenities.join(' · ')}</div></TableCell>
+                  <TableCell className="text-right font-medium"><Money value={t.rate} /></TableCell>
+                  <TableCell className="text-right tabular-nums">{t.capacity}</TableCell>
+                  <TableCell className="text-right tabular-nums">{t.rooms}</TableCell>
+                  <TableCell>{t.active ? <StatusPill tone="success">Yes</StatusPill> : <StatusPill>Hidden</StatusPill>}</TableCell>
+                  <TableCell className="pr-5 text-right"><Button variant="ghost" size="sm" onClick={() => setEditType(t)}>Edit</Button></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </Card>
-
-      <Card
+      </Section>
+      <Section
         title={`Rooms (${rooms.data.filter((r) => r.active).length})`}
-        sub="Each physical room. Switch a room off if it is closed long-term; it disappears from bookings and reports."
-        action={types.data.length > 0 && <button className="btn primary sm" onClick={() => setAdding(true)}><Icon name="plus" size={14} /> Add rooms</button>}
-        pad={false}
+        description="Switch a room off if it is closed long-term; it leaves bookings and reports."
+        action={types.data.length > 0 && <Button size="sm" onClick={() => setAdding(true)}><Plus /> Add rooms</Button>}
       >
         {rooms.data.length === 0 ? (
-          <div className="empty">{types.data.length ? 'No rooms yet. Add them by number — you can add a whole floor at once, like 101-108.' : 'Add a room type first.'}</div>
+          <p className="text-sm text-muted-foreground">{types.data.length ? 'No rooms yet. Add them by number — a whole floor at once, like 101-108.' : 'Add a room type first.'}</p>
         ) : (
-          <div className="room-board" style={{ padding: 16 }}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2">
             {rooms.data.map((r) => (
-              <button key={r.id} className={`room-tile ${r.active ? r.status : 'maintenance'}`} style={r.active ? undefined : { opacity: 0.5 }} onClick={() => setEditRoom(r)}>
-                <span className="no">{r.number}</span>
-                <span className="type">{r.room_type} · floor {r.floor}</span>
-                {!r.active && <span className="badge">Switched off</span>}
+              <button key={r.id} onClick={() => setEditRoom(r)} className={cn('rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50', !r.active && 'opacity-50')}>
+                <div className="font-mono text-lg font-semibold">{r.number}</div>
+                <div className="truncate text-xs text-muted-foreground">{r.room_type} · floor {r.floor}</div>
+                {!r.active && <StatusPill className="mt-1">Off</StatusPill>}
               </button>
             ))}
           </div>
         )}
-      </Card>
-
-      {editType && <RoomTypeForm type={editType === 'new' ? null : editType} onClose={() => setEditType(null)} onSaved={() => (setEditType(null), reload())} />}
-      {adding && <AddRooms types={types.data.filter((t) => t.active)} onClose={() => setAdding(false)} onSaved={() => (setAdding(false), reload())} />}
-      {editRoom && <RoomForm room={editRoom} types={types.data} onClose={() => setEditRoom(null)} onSaved={() => (setEditRoom(null), reload())} />}
+      </Section>
+      <RoomTypeDialog type={editType} onClose={() => setEditType(null)} onSaved={() => (setEditType(null), reload())} />
+      <AddRooms open={adding} types={types.data.filter((t) => t.active)} onClose={() => setAdding(false)} onSaved={() => (setAdding(false), reload())} />
+      <RoomDialog room={editRoom} types={types.data} onClose={() => setEditRoom(null)} onSaved={() => (setEditRoom(null), reload())} />
     </div>
   );
 }
 
-function RoomTypeForm({ type, onClose, onSaved }: { type: RoomType | null; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({
-    name: type?.name ?? '', rate: String(type?.rate ?? ''), capacity: String(type?.capacity ?? 2), description: type?.description ?? '',
-    amenities: (type?.amenities ?? []).join(', '), active: type ? !!type.active : true,
-  });
+function RoomTypeDialog({ type, onClose, onSaved }: { type: RoomType | 'new' | null; onClose: () => void; onSaved: () => void }) {
+  const t = type && type !== 'new' ? type : null;
+  const init = () => ({ name: t?.name ?? '', rate: String(t?.rate ?? ''), capacity: String(t?.capacity ?? 2), description: t?.description ?? '', amenities: (t?.amenities ?? []).join(', '), active: t ? !!t.active : true });
+  const [f, setF] = useState(init);
+  const [key, setKey] = useState<typeof type>(null);
+  if (key !== type) (setKey(type), setF(init()));
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
       const body = { ...f, rate: Number(f.rate), capacity: Number(f.capacity), amenities: f.amenities.split(',').map((a) => a.trim()).filter(Boolean) };
-      await api(type ? `/settings/room-types/${type.id}` : '/settings/room-types', { method: type ? 'PUT' : 'POST', body });
-      toast(type ? 'Room type updated' : 'Room type added — now add its rooms');
+      await api(t ? `/settings/room-types/${t.id}` : '/settings/room-types', { method: t ? 'PUT' : 'POST', body });
+      toast.success(t ? 'Room type updated' : 'Room type added', { description: t ? undefined : 'Now add its room numbers.' });
       onSaved();
     });
   };
   return (
-    <Modal title={type ? `Edit ${type.name}` : 'Add a room type'} onClose={onClose}>
-      <form className="stack" onSubmit={onSubmit}>
-        <Field label="Name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={60} placeholder="e.g. Deluxe Room" /></Field>
-        <div className="grid-2">
-          <Field label="Rate per night (₦)"><input className="input num" inputMode="numeric" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value.replace(/\D/g, '') })} required /></Field>
-          <Field label="Sleeps"><input className="input num" inputMode="numeric" value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value.replace(/\D/g, '') })} required /></Field>
-        </div>
-        <Field label="Short description" hint="One or two sentences for the website"><textarea className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={300} /></Field>
-        <Field label="What's in the room" hint="Separate with commas: King bed, Smart TV, Mini-fridge"><input className="input" value={f.amenities} onChange={(e) => setF({ ...f, amenities: e.target.value })} /></Field>
-        {type && (
-          <label className="row" style={{ fontWeight: 600 }}>
-            <input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> On sale (shown on the website and at the desk)
-          </label>
-        )}
-        <ErrorBox error={error} />
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy}>Save</button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={!!type} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{t ? `Edit ${t.name}` : 'Add a room type'}</DialogTitle></DialogHeader>
+        <form id="rtype" className="grid gap-4" onSubmit={onSubmit}>
+          <Field label="Name"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={60} placeholder="Deluxe Room" /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Base rate / night"><MoneyInput value={f.rate} onChange={(v) => setF({ ...f, rate: v })} required /></Field>
+            <Field label="Sleeps"><Input inputMode="numeric" className="tabular-nums" value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value.replace(/\D/g, '') })} required /></Field>
+          </div>
+          <Field label="Description" hint="One or two sentences for the website"><Textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={300} rows={2} /></Field>
+          <Field label="In the room" hint="Comma-separated: King bed, Smart TV, Mini-fridge"><Input value={f.amenities} onChange={(e) => setF({ ...f, amenities: e.target.value })} /></Field>
+          {t && <label className="flex items-center gap-3 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> On sale</label>}
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="rtype" disabled={busy}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function AddRooms({ types, onClose, onSaved }: { types: RoomType[]; onClose: () => void; onSaved: () => void }) {
-  const [typeId, setTypeId] = useState(types[0]?.id ?? 0);
+function AddRooms({ open, types, onClose, onSaved }: { open: boolean; types: RoomType[]; onClose: () => void; onSaved: () => void }) {
+  const [typeId, setTypeId] = useState('');
   const [numbers, setNumbers] = useState('');
   const [floor, setFloor] = useState('');
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    submit(async () => {
-      const r = await api<{ created: number }>('/settings/rooms', { body: { room_type_id: typeId, numbers, floor: floor || undefined } });
-      toast(`${r.created} room${r.created > 1 ? 's' : ''} added`);
-      onSaved();
-    });
-  };
+  useEffect(() => {
+    if (open && !typeId && types[0]) setTypeId(String(types[0].id));
+  }, [open, types, typeId]);
   return (
-    <Modal title="Add rooms" onClose={onClose}>
-      <form className="stack" onSubmit={onSubmit}>
-        <Field label="Room type">
-          <select className="input" value={typeId} onChange={(e) => setTypeId(Number(e.target.value))}>
-            {types.map((t) => <option key={t.id} value={t.id}>{t.name} — {naira(t.rate)}</option>)}
-          </select>
-        </Field>
-        <Field label="Room numbers" hint="Ranges and lists both work: 101-108, 110, 201">
-          <input className="input" value={numbers} onChange={(e) => setNumbers(e.target.value)} required placeholder="101-108" />
-        </Field>
-        <Field label="Floor (optional)" hint="Leave empty to use the first digit — 101 is floor 1, 201 is floor 2">
-          <input className="input num" inputMode="numeric" value={floor} onChange={(e) => setFloor(e.target.value.replace(/\D/g, ''))} />
-        </Field>
-        <ErrorBox error={error} />
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy}>Add rooms</button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Add rooms</DialogTitle></DialogHeader>
+        <form
+          id="rooms"
+          className="grid gap-4"
+          onSubmit={(e) => (
+            e.preventDefault(),
+            submit(async () => {
+              const r = await api<{ created: number }>('/settings/rooms', { body: { room_type_id: Number(typeId), numbers, floor: floor || undefined } });
+              toast.success(`${r.created} room${r.created > 1 ? 's' : ''} added`);
+              setNumbers('');
+              onSaved();
+            })
+          )}
+        >
+          <Field label="Room type"><SelectField value={typeId} onChange={setTypeId} options={types.map((t) => ({ value: String(t.id), label: `${t.name} — ${naira(t.rate)}` }))} /></Field>
+          <Field label="Room numbers" hint="Ranges and lists: 101-108, 110, 201"><Input value={numbers} onChange={(e) => setNumbers(e.target.value)} required placeholder="101-108" className="font-mono" /></Field>
+          <Field label="Floor" hint="Leave empty to use the first digit (101 → floor 1)"><Input inputMode="numeric" className="tabular-nums" value={floor} onChange={(e) => setFloor(e.target.value.replace(/\D/g, ''))} /></Field>
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="rooms" disabled={busy}>Add rooms</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function RoomForm({ room, types, onClose, onSaved }: { room: Room; types: RoomType[]; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ room_type_id: room.room_type_id, floor: String(room.floor), active: !!room.active });
+function RoomDialog({ room, types, onClose, onSaved }: { room: Room | null; types: RoomType[]; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ room_type_id: '', floor: '', active: true });
+  const [key, setKey] = useState<Room | null>(null);
+  if (key !== room) (setKey(room), room && setF({ room_type_id: String(room.room_type_id), floor: String(room.floor), active: !!room.active }));
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
-  const save = (e: FormEvent) => {
-    e.preventDefault();
-    submit(async () => {
-      await api(`/settings/rooms/${room.id}`, { method: 'PUT', body: { ...f, floor: Number(f.floor) } });
-      toast(`Room ${room.number} saved`);
-      onSaved();
-    });
-  };
-  const remove = () =>
-    submit(async () => {
-      await api(`/settings/rooms/${room.id}`, { method: 'DELETE' });
-      toast(`Room ${room.number} deleted`);
-      onSaved();
-    });
+  const confirm = useConfirm();
   return (
-    <Modal title={`Room ${room.number}`} onClose={onClose}>
-      <form className="stack" onSubmit={save}>
-        <div className="grid-2">
-          <Field label="Room type">
-            <select className="input" value={f.room_type_id} onChange={(e) => setF({ ...f, room_type_id: Number(e.target.value) })}>
-              {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Floor"><input className="input num" inputMode="numeric" value={f.floor} onChange={(e) => setF({ ...f, floor: e.target.value.replace(/\D/g, '') })} required /></Field>
-        </div>
-        <label className="row" style={{ fontWeight: 600 }}>
-          <input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> In use (can be booked)
-        </label>
-        <ErrorBox error={error} />
-        <div className="row">
-          {room.bookings === 0 && <button type="button" className="btn danger" disabled={busy} onClick={() => confirm(`Delete room ${room.number}? It has never been booked.`) && remove()}>Delete room</button>}
-          <span className="spacer" />
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy}>Save</button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={!!room} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Room {room?.number}</DialogTitle></DialogHeader>
+        <form
+          id="room"
+          className="grid gap-4"
+          onSubmit={(e) => (e.preventDefault(), submit(async () => (await api(`/settings/rooms/${room!.id}`, { method: 'PUT', body: { room_type_id: Number(f.room_type_id), floor: Number(f.floor), active: f.active } }), toast.success('Room saved'), onSaved())))}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Type"><SelectField value={f.room_type_id} onChange={(v) => setF({ ...f, room_type_id: v })} options={types.map((t) => ({ value: String(t.id), label: t.name }))} /></Field>
+            <Field label="Floor"><Input inputMode="numeric" className="tabular-nums" value={f.floor} onChange={(e) => setF({ ...f, floor: e.target.value.replace(/\D/g, '') })} required /></Field>
+          </div>
+          <label className="flex items-center gap-3 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> In use</label>
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter className="sm:justify-between">
+          {room?.bookings === 0 ? (
+            <Button
+              variant="ghost"
+              className="text-destructive"
+              disabled={busy}
+              onClick={async () => (await confirm({ title: `Delete room ${room.number}?`, description: 'It has never been booked.', confirmLabel: 'Delete', destructive: true })) && submit(async () => (await api(`/settings/rooms/${room.id}`, { method: 'DELETE' }), toast.success('Room deleted'), onSaved()))}
+            >
+              <Trash2 /> Delete
+            </Button>
+          ) : <span />}
+          <Button type="submit" form="room" disabled={busy}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -314,98 +315,90 @@ function FacilityPrices() {
   const { data, reload } = useApi<Item[]>('/settings/facility-items?all=1');
   const [f, setF] = useState({ facility: 'gym' as Facility, name: '', price: '' });
   const { busy, error, submit } = useSubmit();
-  const toast = useToast();
-  const add = (e: FormEvent) => {
-    e.preventDefault();
-    submit(async () => {
-      await api('/settings/facility-items', { body: { ...f, price: Number(f.price) } });
-      toast('Price added');
-      setF({ ...f, name: '', price: '' });
-      reload();
-    });
-  };
-  const toggle = (i: Item) => api(`/settings/facility-items/${i.id}`, { method: 'PUT', body: { ...i, active: !i.active } }).then(reload, (e) => toast(e.message));
-  if (!data) return <Loading />;
+  const toggle = (i: Item) => api(`/settings/facility-items/${i.id}`, { method: 'PUT', body: { ...i, active: !i.active } }).then(reload, (e) => toast.error(e.message));
+  if (!data) return <LoadingRows />;
   return (
-    <div className="cards cols-main" style={{ alignItems: 'start' }}>
-      <Card title="Price list" sub="These appear as one-tap buttons at the front desk, and their lowest prices on the website" pad={false}>
+    <div className="grid items-start gap-6 xl:grid-cols-[1.4fr_1fr]">
+      <Section title="Price list" description="One-tap buttons at the front desk; the lowest prices show on the website" flush>
         {data.length === 0 ? (
-          <div className="empty">No prices yet. Add your gym passes, pool passes and lounge charges.</div>
+          <EmptyState title="No prices yet">Add gym passes, pool passes and lounge charges.</EmptyState>
         ) : (
-          <div className="table-wrap">
-            <table className="t">
-              <tbody>
-                {FACILITIES.flatMap((fac) =>
-                  data.filter((i) => i.facility === fac).map((i, n) => (
-                    <tr key={i.id} style={i.active ? undefined : { opacity: 0.5 }}>
-                      <td className="muted" style={{ width: 140 }}>{n === 0 ? FACILITY_LABELS[fac] : ''}</td>
-                      <td>{i.name}</td>
-                      <td className="r strong">{naira(i.price)}</td>
-                      <td className="r"><button className="btn ghost sm" onClick={() => toggle(i)}>{i.active ? 'Hide' : 'Show'}</button></td>
-                    </tr>
-                  )),
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableBody>
+              {FACILITIES.flatMap((fac) =>
+                data.filter((i) => i.facility === fac).map((i, n) => (
+                  <TableRow key={i.id} className={i.active ? '' : 'opacity-50'}>
+                    <TableCell className="w-36 pl-5 text-xs font-medium text-muted-foreground">{n === 0 ? FACILITY_LABELS[fac] : ''}</TableCell>
+                    <TableCell>{i.name}</TableCell>
+                    <TableCell className="text-right font-medium"><Money value={i.price} /></TableCell>
+                    <TableCell className="pr-5 text-right"><Switch checked={!!i.active} onCheckedChange={() => toggle(i)} aria-label={`Show ${i.name}`} /></TableCell>
+                  </TableRow>
+                )),
+              )}
+            </TableBody>
+          </Table>
         )}
-      </Card>
-      <Card title="Add a price">
-        <form className="stack" onSubmit={add}>
-          <Field label="Facility">
-            <select className="input" value={f.facility} onChange={(e) => setF({ ...f, facility: e.target.value as Facility })}>
-              {FACILITIES.map((x) => <option key={x} value={x}>{FACILITY_LABELS[x]}</option>)}
-            </select>
-          </Field>
-          <Field label="What is sold"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} placeholder="e.g. Pool day pass — adult" /></Field>
-          <Field label="Price (₦)"><input className="input num" inputMode="numeric" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value.replace(/\D/g, '') })} required /></Field>
-          <ErrorBox error={error} />
-          <button className="btn primary" disabled={busy}>Add price</button>
+      </Section>
+      <Section title="Add a price">
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => (e.preventDefault(), submit(async () => (await api('/settings/facility-items', { body: { ...f, price: Number(f.price) } }), toast.success('Price added'), setF({ ...f, name: '', price: '' }), reload())))}
+        >
+          <Field label="Facility"><SelectField value={f.facility} onChange={(v) => setF({ ...f, facility: v as Facility })} options={FACILITIES.map((x) => ({ value: x, label: FACILITY_LABELS[x] }))} /></Field>
+          <Field label="What is sold"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} placeholder="Pool day pass — adult" /></Field>
+          <Field label="Price"><MoneyInput value={f.price} onChange={(v) => setF({ ...f, price: v })} required /></Field>
+          <ErrorNote error={error} />
+          <Button disabled={busy}>Add price</Button>
         </form>
-      </Card>
+      </Section>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 
-interface Checklist { profile: boolean; room_types: boolean; rooms: boolean; products: boolean; facility_items: boolean; team: boolean; mfa: boolean }
-
-/** Shown on the owner's dashboard until the hotel is fully set up. */
-export function SetupChecklist() {
-  const { data } = useApi<Checklist>('/setup/checklist');
-  if (!data) return null;
-  const steps: [keyof Checklist, string, string, string][] = [
-    ['profile', 'Add your hotel details', 'Phone, address and check-in times for the website and invoices', '/staff/settings?tab=hotel'],
-    ['room_types', 'Create your room types and rates', 'e.g. Standard, Deluxe, Executive Suite', '/staff/settings?tab=rooms'],
-    ['rooms', 'Add your room numbers', 'A whole floor at once: 101-108', '/staff/settings?tab=rooms'],
-    ['products', 'Add bar & shop items, then record a purchase for opening stock', 'Drinks and confectionery with selling prices', '/staff/inventory'],
-    ['facility_items', 'Set gym, pool and lounge prices', 'Day passes, memberships, VIP tables', '/staff/settings?tab=facilities'],
-    ['team', 'Add your staff with their real names', 'Front desk, bar and housekeeping each get their own sign-in', '/staff/team'],
-    ['mfa', 'Turn on two-step sign-in for managers', 'Protects every naira from a stolen password', '/staff/account'],
-  ];
-  const done = steps.filter(([k]) => data[k]).length;
-  if (done === steps.length) return null;
+function Integrations() {
+  const status = useApi<{ sms: boolean; online_payments: boolean }>('/messaging/status');
+  const { data, reload } = useApi<HotelSettings>('/settings');
+  const [pct, setPct] = useState('');
+  const { busy, error, submit } = useSubmit();
+  useEffect(() => {
+    if (data) setPct(String(data.deposit_percent || ''));
+  }, [data]);
+  if (!data || !status.data) return <LoadingRows />;
   return (
-    <Card title={`Get Danest ready — ${done} of ${steps.length} done`} sub="Everything starts empty so that every number is your hotel's real business." pad={false}>
-      <div style={{ height: 4, background: 'var(--line)' }}><div style={{ height: 4, width: `${(done / steps.length) * 100}%`, background: 'var(--gold)', transition: 'width .4s' }} /></div>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {steps.map(([k, title, text, to]) => (
-          <li key={k} style={{ borderBottom: '1px solid var(--line)' }}>
-            <Link to={to} className="row" style={{ padding: '12px 20px', textDecoration: 'none', flexWrap: 'nowrap', opacity: data[k] ? 0.55 : 1 }}>
-              <span className={`badge plain ${data[k] ? 'green' : ''}`} style={{ width: 28, height: 28, padding: 0, justifyContent: 'center', borderRadius: '50%' }}>
-                {data[k] ? <Icon name="check" size={14} /> : null}
-              </span>
-              <span>
-                <b style={{ fontSize: 14, textDecoration: data[k] ? 'line-through' : undefined }}>{title}</b>
-                <div className="muted" style={{ fontSize: 12.5 }}>{text}</div>
-              </span>
-              <span className="spacer" />
-              {!data[k] && <Icon name="arrow" size={16} className="muted" />}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <div className="grid items-start gap-6 xl:grid-cols-2">
+      <Section title={<span className="flex items-center gap-2"><CreditCard className="size-4" /> Online deposits (Paystack)</span>} description="Guests pay a deposit by card, bank transfer or USSD when they book on the website.">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-sm">
+            Connection: {status.data.online_payments ? <StatusPill tone="success">Connected</StatusPill> : <StatusPill tone="warning">Not connected</StatusPill>}
+          </div>
+          {!status.data.online_payments && (
+            <p className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              The person who runs the server sets <code className="font-mono">PAYSTACK_SECRET_KEY</code> from the hotel's Paystack dashboard, and points Paystack's webhook to <code className="font-mono">/api/paystack/webhook</code>. Keys never go in this screen or the browser.
+            </p>
+          )}
+          <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => (e.preventDefault(), submit(async () => (await api('/settings', { method: 'PUT', body: { ...data, deposit_percent: Number(pct || 0) } }), toast.success(Number(pct) ? `Guests can pay ${pct}% online` : 'Online deposits turned off'), reload())))}>
+            <Field label="Deposit guests pay online" hint="0 turns online payment off. 100 means full payment.">
+              <div className="relative w-32">
+                <Input inputMode="numeric" className="pr-7 tabular-nums" value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="0" />
+                <span className="absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
+            </Field>
+            <Button disabled={busy}>Save</Button>
+          </form>
+          <ErrorNote error={error} />
+          <p className="text-xs text-muted-foreground">A paid deposit confirms the booking automatically and appears on the guest's bill as “Paid online”.</p>
+        </div>
+      </Section>
+      <Section title={<span className="flex items-center gap-2"><MessageCircle className="size-4" /> Guest messages</span>} description="Confirmations, reminders and thank-yous from each reservation.">
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center gap-2">WhatsApp: <StatusPill tone="success">Ready</StatusPill></div>
+          <p className="text-muted-foreground">Staff tap “Send on WhatsApp” and the message opens ready to send from the hotel's phone.</p>
+          <div className="flex items-center gap-2 pt-2">SMS: {status.data.sms ? <StatusPill tone="success">Connected</StatusPill> : <StatusPill>Not connected</StatusPill>}</div>
+          {!status.data.sms && <p className="text-xs text-muted-foreground">Connect Termii by setting <code className="font-mono">TERMII_API_KEY</code> and <code className="font-mono">TERMII_SENDER_ID</code> on the server, and messages send automatically by SMS.</p>}
+        </div>
+      </Section>
+    </div>
   );
 }

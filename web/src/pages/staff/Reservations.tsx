@@ -1,20 +1,26 @@
+import { CalendarCheck, Plus, Search, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { SOURCE_LABELS } from '../../../../shared/constants';
-import { useDesk } from '../../components/Desk';
-import { EmptyIllo } from '../../components/illustrations';
-import { Card, EmptyState, ErrorBox, Icon, Loading, PageHead, StatusBadge, Tabs } from '../../components/kit';
-import { fmtDate, naira } from '../../lib/api';
-import { useApi } from '../../lib/hooks';
-import { balanceOf, type Reservation } from './ReservationDrawer';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader } from '@/components/app/page';
+import { ReservationStatusPill, StatusPill } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { fmtDate } from '@/lib/api';
+import { useApi } from '@/lib/hooks';
+import { balanceOf, type Reservation } from './desk/ReservationSheet';
+import { useDesk } from './desk/Desk';
 
-type View = 'upcoming' | 'pending' | 'inhouse' | 'arrivals' | 'departures' | 'balances' | 'all';
+type View = 'upcoming' | 'pending' | 'arrivals' | 'inhouse' | 'departures' | 'balances' | 'all';
 const VIEWS: { value: View; label: string }[] = [
   { value: 'upcoming', label: 'Upcoming' },
-  { value: 'pending', label: 'Website requests' },
-  { value: 'arrivals', label: 'Arriving today' },
+  { value: 'pending', label: 'Requests' },
+  { value: 'arrivals', label: 'Arriving' },
   { value: 'inhouse', label: 'In house' },
-  { value: 'departures', label: 'Leaving today' },
+  { value: 'departures', label: 'Leaving' },
   { value: 'balances', label: 'Owing' },
   { value: 'all', label: 'All' },
 ];
@@ -37,81 +43,103 @@ export default function Reservations() {
   if (query) qs.set('q', query);
   qs.set('v', String(desk.version));
   const { data, error } = useApi<Reservation[]>(`/reservations?${qs}`);
-
-  const setView = (v: View) => setParams(v === 'pending' ? { status: 'pending' } : v === 'upcoming' ? {} : { view: v });
+  const setView = (v: string) => setParams(v === 'pending' ? { status: 'pending' } : v === 'upcoming' ? {} : { view: v });
 
   return (
     <>
-      <PageHead title="Reservations" sub="Bookings from the website, the phone and walk-ins — all in one list.">
-        <button className="btn primary" onClick={() => desk.newReservation()} title="Shortcut: N">
-          <Icon name="plus" size={16} /> New reservation
-        </button>
-      </PageHead>
-
-      <div className="row" style={{ marginBottom: 16 }}>
-        <Tabs value={view} onChange={setView} options={VIEWS} />
-        <span className="spacer" />
-        <label className="row" style={{ gap: 0, position: 'relative' }}>
-          <span className="sr-only">Search</span>
-          <Icon name="search" size={16} className="muted" />
-          <input className="input" style={{ width: 260, marginLeft: -26, paddingLeft: 32 }} placeholder="Guest, phone, room or code" value={q} onChange={(e) => setQ(e.target.value)} />
-        </label>
+      <PageHeader
+        title="Reservations"
+        description="Website requests, phone bookings and walk-ins in one list."
+        actions={
+          <Button onClick={() => desk.newReservation()}>
+            <Plus /> New reservation <kbd className="ml-1 rounded border border-primary-foreground/20 px-1 font-mono text-[10px]">N</kbd>
+          </Button>
+        }
+      />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Tabs value={view} onValueChange={setView}>
+          <TabsList className="h-9 flex-wrap">
+            {VIEWS.map((v) => (
+              <TabsTrigger key={v.value} value={v.value} className="px-3">
+                {v.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <div className="relative ml-auto w-full sm:w-72">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-8" placeholder="Guest, phone, room or reference" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
 
-      <Card pad={false}>
-        <ErrorBox error={error} />
+      <Card className="gap-0 overflow-hidden py-0 shadow-xs">
+        <ErrorNote error={error} />
         {!data ? (
-          <Loading />
+          <LoadingRows rows={8} />
         ) : data.length === 0 ? (
-          <EmptyState illo={<EmptyIllo kind="bell" />} title="Nothing here right now">
-            {view === 'pending' ? 'New website booking requests will appear here.' : 'Try another tab or search.'}
+          <EmptyState icon={CalendarCheck} title="Nothing here">
+            {view === 'pending' ? 'New website requests will appear here.' : 'Try another view or search.'}
           </EmptyState>
         ) : (
-          <div className="table-wrap">
-            <table className="t">
-              <thead>
-                <tr>
-                  <th>Guest</th>
-                  <th>Stay</th>
-                  <th>Room</th>
-                  <th>Status</th>
-                  <th>Source</th>
-                  <th className="r">Total</th>
-                  <th className="r">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((r) => {
-                  const bal = balanceOf(r);
-                  return (
-                    <tr key={r.id} className="click" onClick={() => desk.openReservation(r.id)}>
-                      <td>
-                        <div className="strong">{r.guest_name} {!!r.guest_vip && <span className="vip">★</span>}</div>
-                        <div className="muted" style={{ fontSize: 12.5 }}>{r.code} · {r.guest_phone}</div>
-                      </td>
-                      <td className="num">
-                        {fmtDate(r.check_in)} → {fmtDate(r.check_out)}
-                        <div className="muted" style={{ fontSize: 12.5 }}>{r.nights} night{r.nights > 1 ? 's' : ''}</div>
-                      </td>
-                      <td>
-                        {r.room_number ? <b>{r.room_number}</b> : <span className="muted">Not assigned</span>}
-                        <div className="muted" style={{ fontSize: 12.5 }}>{r.room_type}</div>
-                      </td>
-                      <td><StatusBadge status={r.status} /></td>
-                      <td className="muted">{SOURCE_LABELS[r.source]}</td>
-                      <td className="r">{naira(r.total + r.charges)}</td>
-                      <td className="r">
-                        {r.status === 'cancelled' ? '—' : bal > 0 ? <span style={{ color: 'var(--red)', fontWeight: 700 }}>{naira(bal)}</span> : bal < 0 ? <span className="badge amber">Credit {naira(-bal)}</span> : <span className="badge green">Paid</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-5">Guest</TableHead>
+                <TableHead>Stay</TableHead>
+                <TableHead>Room</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="hidden lg:table-cell">Source</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+                <TableHead className="pr-5 text-right">Balance</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((r) => {
+                const bal = balanceOf(r);
+                return (
+                  <TableRow key={r.id} className="cursor-pointer" onClick={() => desk.openReservation(r.id)}>
+                    <TableCell className="pl-5">
+                      <div className="flex items-center gap-1.5 font-medium">
+                        {r.guest_name}
+                        {!!r.guest_vip && <Star className="size-3.5 fill-brand text-brand" />}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        <span className="font-mono">{r.code}</span> · {r.company_name ?? r.guest_phone}
+                      </div>
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {fmtDate(r.check_in)} → {fmtDate(r.check_out)}
+                      <div className="text-xs text-muted-foreground">{r.nights} night{r.nights > 1 ? 's' : ''}</div>
+                    </TableCell>
+                    <TableCell>
+                      {r.room_number ? <span className="font-mono">{r.room_number}</span> : <span className="text-muted-foreground">—</span>}
+                      <div className="text-xs text-muted-foreground">{r.room_type}</div>
+                    </TableCell>
+                    <TableCell>
+                      <ReservationStatusPill status={r.status} />
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground lg:table-cell">{SOURCE_LABELS[r.source]}</TableCell>
+                    <TableCell className="text-right">
+                      <Money value={r.total + r.charges} />
+                    </TableCell>
+                    <TableCell className="pr-5 text-right">
+                      {r.status === 'cancelled' ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : bal > 0 ? (
+                        <Money value={bal} className="font-medium text-destructive" />
+                      ) : bal < 0 ? (
+                        <StatusPill tone="warning">Credit {Math.abs(bal).toLocaleString('en-NG')}</StatusPill>
+                      ) : (
+                        <StatusPill tone="success">Paid</StatusPill>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
       </Card>
-
     </>
   );
 }

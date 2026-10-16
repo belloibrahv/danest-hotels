@@ -5,6 +5,7 @@ import { api } from './api';
 export interface PublicHotel extends Omit<HotelSettings, 'bank_details'> {
   facility_items: { id: number; facility: Facility; name: string; price: number }[];
   bookable: boolean;
+  online_payments: boolean;
 }
 
 let cache: Promise<PublicHotel> | null = null;

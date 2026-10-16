@@ -1,139 +1,175 @@
+import { Dumbbell, Music, Waves } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
-import { DateRange, useRange } from '../../components/DateRange';
-import { Card, Empty, ErrorBox, Field, Icon, Loading, PageHead, Stat, useSubmit, useToast } from '../../components/kit';
-import { api, fmtDate, naira } from '../../lib/api';
-import { can, useAuth } from '../../lib/auth';
-import { useApi } from '../../lib/hooks';
+import { DateRangePicker, useRange } from '@/components/app/date-range';
+import { DateInput, Field, MoneyInput, SelectField } from '@/components/app/form';
+import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
+import { StatusPill } from '@/components/app/status';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { api, fmtDate, naira, todayISO } from '@/lib/api';
+import { can, useAuth } from '@/lib/auth';
+import { useApi, useSubmit } from '@/lib/hooks';
 
 interface Data {
   rows: { id: number; facility: Facility; item: string; customer: string | null; amount: number; method: ChargeMethod; date: string; recorded_by: string; room_number: string | null }[];
   totals: { facility: Facility; total: number; count: number }[];
 }
-
-const ICON: Record<Facility, string> = { gym: 'dumbbell', pool: 'wave', lounge: 'music' };
+const ICON = { gym: Dumbbell, pool: Waves, lounge: Music };
 
 export default function OtherIncome() {
   const { user } = useAuth();
   const range = useRange('today');
   const { data, error, reload } = useApi<Data>(`/facility-income?${range.qs}`);
-  const [facility, setFacility] = useState<Facility>('gym');
-  // One-tap prices come from the owner's price list in Settings.
   const priceList = useApi<{ id: number; facility: Facility; name: string; price: number }[]>('/settings/facility-items');
-  const quick = (x: Facility) => (priceList.data ?? []).filter((i) => i.facility === x).map((i) => ({ item: i.name, amount: i.price }));
+  const [facility, setFacility] = useState<Facility>('gym');
   const [f, setF] = useState({ item: '', amount: '', customer: '', method: 'transfer' as ChargeMethod, date: '' });
-  useEffect(() => {
-    const first = (priceList.data ?? []).find((i) => i.facility === facility);
-    if (first && !f.item) setF((x) => ({ ...x, item: first.name, amount: String(first.price) }));
-  }, [priceList.data]);
-  const [guest, setGuest] = useState<number | ''>('');
+  const [guest, setGuest] = useState('');
   const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(f.method === 'room' ? '/inhouse' : null);
   const { busy, error: saveErr, submit } = useSubmit();
-  const toast = useToast();
+  const quick = (x: Facility) => (priceList.data ?? []).filter((i) => i.facility === x);
 
-  const pickFacility = (x: Facility) => {
+  useEffect(() => {
+    const first = quick(facility)[0];
+    if (first && !f.item) setF((x) => ({ ...x, item: first.name, amount: String(first.price) }));
+  }, [priceList.data]);
+
+  const pick = (x: Facility) => {
     setFacility(x);
     const first = quick(x)[0];
-    setF({ ...f, item: first?.item ?? '', amount: first ? String(first.amount) : '' });
+    setF({ ...f, item: first?.name ?? '', amount: first ? String(first.price) : '' });
   };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
       await api('/facility-income', {
-        body: { facility, item: f.item, amount: Number(f.amount), customer: f.customer, method: f.method, reservation_id: f.method === 'room' ? guest : undefined, date: f.date || undefined },
+        body: { facility, item: f.item, amount: Number(f.amount), customer: f.customer, method: f.method, reservation_id: f.method === 'room' ? Number(guest) : undefined, date: f.date || undefined },
       });
-      toast(f.method === 'room' ? `${naira(Number(f.amount))} added to the room bill` : `${naira(Number(f.amount))} recorded for the ${FACILITY_LABELS[facility].toLowerCase()}`);
-      setGuest('');
+      toast.success(f.method === 'room' ? `${naira(Number(f.amount))} added to the room bill` : `${naira(Number(f.amount))} recorded`);
       setF({ ...f, customer: '' });
+      setGuest('');
       reload();
     });
   };
-
   const total = (x: Facility) => data?.totals.find((t) => t.facility === x);
 
   return (
     <>
-      <PageHead title="Gym, pool & lounge" sub="Record every pass, membership and booking so other income shows up in the profit figures." />
-
-      <div className="cards cols-main" style={{ marginBottom: 16, alignItems: 'start' }}>
-        <div className="stack">
-          <DateRange state={range} />
-          <div className="cards cols-3">
+      <PageHeader title="Gym, pool & lounge" description="Passes, memberships and bookings — so other income shows up in profit." actions={<DateRangePicker state={range} />} />
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_400px]">
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3">
             {FACILITIES.map((x) => (
-              <Stat key={x} icon={ICON[x]} label={FACILITY_LABELS[x]} value={naira(total(x)?.total ?? 0)} foot={`${total(x)?.count ?? 0} entries`} />
+              <StatCard key={x} icon={ICON[x]} label={FACILITY_LABELS[x]} value={<Money value={total(x)?.total ?? 0} />} hint={`${total(x)?.count ?? 0} entries`} />
             ))}
           </div>
-          <Card pad={false} title="Entries">
-            <ErrorBox error={error} />
-            {!data ? <Loading /> : data.rows.length === 0 ? <Empty>Nothing recorded for this period yet.</Empty> : (
-              <div className="table-wrap">
-                <table className="t">
-                  <thead><tr><th>Date</th><th>Facility</th><th>Item</th><th>Customer</th><th>Paid by</th><th className="r">Amount</th></tr></thead>
-                  <tbody>
-                    {data.rows.map((r) => (
-                      <tr key={r.id}>
-                        <td className="num">{fmtDate(r.date)}</td>
-                        <td><span className="badge plain">{FACILITY_LABELS[r.facility]}</span></td>
-                        <td>{r.item}</td>
-                        <td className="muted">{r.customer ?? '—'}</td>
-                        <td>{r.method === 'room' ? <span className="badge gold plain">Room {r.room_number}</span> : CHARGE_LABELS[r.method]}</td>
-                        <td className="r strong">{naira(r.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <Section title="Entries" flush>
+            <ErrorNote error={error} />
+            {!data ? (
+              <LoadingRows rows={5} />
+            ) : data.rows.length === 0 ? (
+              <EmptyState icon={Waves} title="Nothing recorded for this period" />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="pl-5">Date</TableHead>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Paid by</TableHead>
+                    <TableHead className="pr-5 text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => (
+                    <TableRow key={r.id}>
+                      <TableCell className="pl-5 tabular-nums">{fmtDate(r.date)}</TableCell>
+                      <TableCell>
+                        {r.item}
+                        <div className="text-xs text-muted-foreground">{FACILITY_LABELS[r.facility]}</div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{r.customer ?? '—'}</TableCell>
+                      <TableCell>{r.method === 'room' ? <StatusPill tone="brand">Room {r.room_number}</StatusPill> : CHARGE_LABELS[r.method]}</TableCell>
+                      <TableCell className="pr-5 text-right font-medium">
+                        <Money value={r.amount} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
-          </Card>
+          </Section>
         </div>
 
-        <Card title="Record income">
-          <form className="stack" onSubmit={onSubmit}>
-            <div className="pay-methods" role="group" aria-label="Facility">
-              {FACILITIES.map((x) => (
-                <button type="button" key={x} aria-pressed={facility === x} onClick={() => pickFacility(x)}>
-                  <Icon name={ICON[x]} size={14} /> {FACILITY_LABELS[x].split(' ')[0]}
-                </button>
-              ))}
-            </div>
-            <div className="row" style={{ gap: 6 }}>
+        <Section title="Record income" className="xl:sticky xl:top-20">
+          <form className="grid gap-4" onSubmit={onSubmit}>
+            <ToggleGroup type="single" variant="outline" value={facility} onValueChange={(v) => v && pick(v as Facility)} className="grid w-full grid-cols-3">
+              {FACILITIES.map((x) => {
+                const I = ICON[x];
+                return (
+                  <ToggleGroupItem key={x} value={x} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
+                    <I /> {FACILITY_LABELS[x].split(' ')[0]}
+                  </ToggleGroupItem>
+                );
+              })}
+            </ToggleGroup>
+            <div className="flex flex-wrap gap-1.5">
               {quick(facility).length === 0 && (
-                <span className="muted" style={{ fontSize: 13 }}>
-                  {can(user, 'manager') ? <>No prices set for the {FACILITY_LABELS[facility].toLowerCase()}. <a href="/staff/settings?tab=facilities">Add them in Settings</a>.</> : 'No price list yet — type the item and amount.'}
-                </span>
+                <p className="text-xs text-muted-foreground">
+                  {can(user, 'manager') ? (
+                    <>
+                      No price list for the {FACILITY_LABELS[facility].toLowerCase()} yet.{' '}
+                      <Link className="underline" to="/staff/settings?tab=facilities">
+                        Add prices
+                      </Link>
+                    </>
+                  ) : (
+                    'No price list yet — type the item and amount.'
+                  )}
+                </p>
               )}
               {quick(facility).map((q) => (
-                <button type="button" key={q.item} className="btn sm" aria-pressed={f.item === q.item} style={f.item === q.item ? { borderColor: 'var(--gold)', background: 'var(--gold-soft)' } : undefined} onClick={() => setF({ ...f, item: q.item, amount: String(q.amount) })}>
-                  {q.item.replace(/^(Gym|Pool) /, '')}
-                </button>
+                <Button key={q.id} type="button" size="sm" variant={f.item === q.name ? 'secondary' : 'outline'} className="h-7 text-xs" onClick={() => setF({ ...f, item: q.name, amount: String(q.price) })}>
+                  {q.name.replace(/^(Gym|Pool) /, '')} · {naira(q.price)}
+                </Button>
               ))}
             </div>
-            <Field label="What was sold"><input className="input" value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} required maxLength={120} /></Field>
-            <div className="grid-2">
-              <Field label="Amount (₦)"><input className="input num" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, '') })} required /></Field>
+            <Field label="What was sold">
+              <Input value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} required maxLength={120} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Amount">
+                <MoneyInput value={f.amount} onChange={(v) => setF({ ...f, amount: v })} required />
+              </Field>
               <Field label="Paid by">
-                <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value as ChargeMethod })}>
-                  {CHARGE_METHODS.map((m) => <option key={m} value={m}>{CHARGE_LABELS[m]}</option>)}
-                </select>
+                <SelectField value={f.method} onChange={(v) => setF({ ...f, method: v as ChargeMethod })} options={CHARGE_METHODS.map((m) => ({ value: m, label: CHARGE_LABELS[m] }))} />
               </Field>
             </div>
-            {f.method === 'room' && (
+            {f.method === 'room' ? (
               <Field label="In-house guest">
-                <select className="input" value={guest} onChange={(e) => setGuest(e.target.value ? Number(e.target.value) : '')} required>
-                  <option value="">Choose a room…</option>
-                  {inhouse.data?.map((g) => <option key={g.reservation_id} value={g.reservation_id}>Room {g.room_number} — {g.guest_name}</option>)}
-                </select>
+                <SelectField value={guest} onChange={setGuest} placeholder="Choose a room" options={(inhouse.data ?? []).map((g) => ({ value: String(g.reservation_id), label: `Room ${g.room_number} — ${g.guest_name}` }))} />
+              </Field>
+            ) : (
+              <Field label="Customer">
+                <Input value={f.customer} onChange={(e) => setF({ ...f, customer: e.target.value })} maxLength={120} placeholder="Optional" />
               </Field>
             )}
-            {f.method !== 'room' && <Field label="Customer (optional)"><input className="input" value={f.customer} onChange={(e) => setF({ ...f, customer: e.target.value })} maxLength={120} placeholder="Name or phone" /></Field>}
             {can(user, 'manager') && f.method !== 'room' && (
-              <Field label="Date" hint="Leave empty for today"><input className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
+              <Field label="Date" hint="Leave as today unless recording a past sale">
+                <DateInput value={f.date || todayISO()} max={todayISO()} onChange={(v) => setF({ ...f, date: v })} />
+              </Field>
             )}
-            <ErrorBox error={saveErr} />
-            <button className="btn gold lg block" disabled={busy || !f.amount || (f.method === 'room' && !guest)}>{busy ? 'Saving…' : `Record ${f.amount ? naira(Number(f.amount)) : ''}`}</button>
+            <ErrorNote error={saveErr} />
+            <Button size="lg" disabled={busy || !f.amount || (f.method === 'room' && !guest)}>
+              {busy ? 'Saving…' : `Record ${f.amount ? naira(Number(f.amount)) : ''}`}
+            </Button>
           </form>
-        </Card>
+        </Section>
       </div>
     </>
   );

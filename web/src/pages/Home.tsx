@@ -1,546 +1,392 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { ArrowRight, BedDouble, Check, CheckCircle2, Clock, CreditCard, Dumbbell, MapPin, Music, Phone, Users, Waves } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { FACILITY_LABELS, type Facility } from '../../../shared/constants';
-import { GymScene, LoungeScene, PoolScene, RoomScene } from '../components/illustrations';
-import { ErrorBox, Field, Icon, useSubmit } from '../components/kit';
-import { addDays, api, fmtDateLong, naira, nightsBetween, todayISO } from '../lib/api';
-import { sceneFor, time12, useHotel, type PublicHotel } from '../lib/hotel';
+import { DateInput, Field, SelectField } from '@/components/app/form';
+import { ErrorNote, Money } from '@/components/app/page';
+import { StatusPill } from '@/components/app/status';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { addDays, api, fmtDateLong, naira, nightsBetween, todayISO } from '@/lib/api';
+import { time12, useHotel, type PublicHotel } from '@/lib/hotel';
+import { useSubmit } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
+import { Eyebrow, SitePage } from './site';
 
 interface RoomType {
   id: number;
   name: string;
-  slug: string;
   rate: number;
   capacity: number;
   description: string;
   amenities: string[];
   available: number;
+  total: number;
+  average: number;
+  rate_note: string | null;
 }
 
-const mapEmbed = (address: string) => `https://www.google.com/maps?q=${encodeURIComponent(address)}&z=15&output=embed`;
-const mapsUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-
-function useReveal() {
-  useEffect(() => {
-    const els = document.querySelectorAll('.reveal:not(.in)');
-    const io = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { rootMargin: '0px 0px -8% 0px' });
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  });
-}
-
-export function SiteNav() {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const on = () => setScrolled(window.scrollY > 8);
-    on();
-    window.addEventListener('scroll', on, { passive: true });
-    return () => window.removeEventListener('scroll', on);
-  }, []);
-  return (
-    <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
-      <div className="wrap">
-        <Link to="/" className="brand" aria-label="Danest Hotel & Suites — home">
-          <img src="/brand/crest-128.png" alt="" width={44} height={44} />
-          <span>
-            <b>Danest</b>
-            <small>Hotel &amp; Suites</small>
-          </span>
-        </Link>
-        <nav aria-label="Main">
-          <a href="/#rooms">Rooms</a>
-          <a href="/#facilities">Pool, gym &amp; lounge</a>
-          <a href="/#visit">Find us</a>
-          <Link to="/booking">Manage booking</Link>
-        </nav>
-        <a href="/#book" className="btn primary">
-          Book a room
-        </a>
-      </div>
-    </header>
-  );
-}
-
-export function SiteFooter() {
-  const hotel = useHotel();
-  return (
-    <footer className="site-footer">
-      <div className="wrap">
-        <div className="brand">
-          <img src="/brand/crest-128.png" alt="" width={44} height={44} />
-          <span>
-            <b>{hotel?.name ?? 'Danest Hotel & Suites'}</b>
-            <small style={{ color: '#8f8676' }}>{hotel?.tagline}</small>
-          </span>
-        </div>
-        <span>
-          {hotel?.address}
-          {hotel?.phone && <> · <a href={`tel:${hotel.phone}`}>{hotel.phone}</a></>}
-        </span>
-        <span className="row" style={{ gap: 18 }}>
-          <Link to="/booking">Manage booking</Link>
-          <Link to="/staff/login">Staff sign-in</Link>
-        </span>
-      </div>
-    </footer>
-  );
-}
-
-const DAY = [
-  { time: '7:00', title: 'Wake rested', text: 'A comfortable room on a quiet street in Old Bodija.', scene: <RoomScene variant="deluxe" /> },
-  { time: '8:30', title: 'A morning swim', text: 'Start the day in the pool before the city gets busy.', scene: <PoolScene /> },
-  { time: '17:00', title: 'Work it off', text: 'The gym is downstairs when the meetings are done.', scene: <GymScene /> },
-  { time: '20:00', title: 'Evenings at the lounge', text: 'Cold drinks and good music at the lounge & bar.', scene: <LoungeScene /> },
-];
-
-const FAC_SCENE: Record<Facility, React.ReactNode> = { pool: <PoolScene />, gym: <GymScene />, lounge: <LoungeScene /> };
+const FAC_ICON: Record<Facility, typeof Waves> = { pool: Waves, gym: Dumbbell, lounge: Music };
 const FAC_TEXT: Record<Facility, string> = {
-  pool: 'A sunny pool for a morning swim or a lazy afternoon.',
-  gym: 'Weights, cardio and space to stretch, a few steps from your room.',
-  lounge: 'Cold drinks, good music and space to unwind — or hire it for your event.',
+  pool: 'A sunny outdoor pool for a morning swim or a slow afternoon.',
+  gym: 'Weights, cardio and room to stretch, steps from your room.',
+  lounge: 'Cold drinks and good music — or hire it for your event.',
 };
+const mapEmbed = (a: string) => `https://www.google.com/maps?q=${encodeURIComponent(a)}&z=15&output=embed`;
+const mapsUrl = (a: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a)}`;
 
-function priceTag(h: PublicHotel | null, f: Facility) {
+function priceFrom(h: PublicHotel | null, f: Facility) {
   const items = h?.facility_items.filter((i) => i.facility === f) ?? [];
-  if (!items.length) return 'Open to guests and visitors';
-  const low = Math.min(...items.map((i) => i.price));
-  return items.length === 1 ? `${items[0].name} · ${naira(low)}` : `From ${naira(low)}`;
+  if (!items.length) return null;
+  return Math.min(...items.map((i) => i.price));
 }
 
 export default function Home() {
   const t = todayISO();
+  const hotel = useHotel();
   const [checkIn, setCheckIn] = useState(t);
   const [checkOut, setCheckOut] = useState(addDays(t, 1));
-  const [adults, setAdults] = useState(1);
-  const [typeId, setTypeId] = useState<number | ''>('');
-  const [types, setTypes] = useState<RoomType[]>([]);
-  const [moment, setMoment] = useState(0);
-  const hotel = useHotel();
-  useReveal();
+  const [adults, setAdults] = useState('1');
+  const [types, setTypes] = useState<RoomType[] | null>(null);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const nights = nightsBetween(checkIn, checkOut);
 
-  const validDates = checkOut > checkIn && checkIn >= t;
   useEffect(() => {
-    if (!validDates) return;
-    api<RoomType[]>(`/public/room-types?check_in=${checkIn}&check_out=${checkOut}`).then(setTypes).catch(() => {});
-  }, [checkIn, checkOut, validDates]);
-
-  // The "day at Danest" story advances on its own, and pauses when someone picks a moment.
-  const [paused, setPaused] = useState(false);
-  useEffect(() => {
-    if (paused || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const id = setInterval(() => setMoment((m) => (m + 1) % DAY.length), 5200);
-    return () => clearInterval(id);
-  }, [paused]);
+    if (checkOut <= checkIn) return;
+    let live = true;
+    api<RoomType[]>(`/public/room-types?check_in=${checkIn}&check_out=${checkOut}`).then((r) => live && setTypes(r), () => live && setTypes([]));
+    return () => {
+      live = false;
+    };
+  }, [checkIn, checkOut]);
 
   const choose = (id: number) => {
-    setTypeId(id);
-    document.getElementById('book')?.scrollIntoView({ behavior: 'smooth' });
+    setChosen(id);
+    document.getElementById('book')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+  const from = types?.length ? Math.min(...types.map((r) => r.rate)) : null;
   const setIn = (v: string) => {
     setCheckIn(v);
     if (checkOut <= v) setCheckOut(addDays(v, 1));
   };
-  const nights = nightsBetween(checkIn, checkOut);
-  const from = types.length ? Math.min(...types.map((r) => r.rate)) : 0;
 
   return (
-    <div className="site">
-      <SiteNav />
-
-      <main id="top">
-        <section className="hero">
-          <div className="hero-glow" aria-hidden="true" />
-          <div className="wrap">
-            <div className="hero-grid">
-              <div className="hero-copy">
-                <span className="eyebrow">Old Bodija · Ibadan</span>
-                <h1 className="display">
-                  Rest easy in the heart of <em>Bodija.</em>
-                </h1>
-                <p className="lede">Comfortable rooms and a warm Ibadan welcome — with a swimming pool, a gym and a lounge &amp; bar on site. Book directly with us.</p>
-                <div className="row" style={{ gap: 12, marginTop: 28 }}>
-                  <a href="#book" className="btn gold lg">Check availability</a>
-                  {from > 0 && <span className="muted" style={{ fontSize: 15 }}>Rooms from <b style={{ color: 'var(--ink)' }}>{naira(from)}</b> a night</span>}
-                </div>
-              </div>
-              <div className="hero-art">
-                <picture>
-                  <source type="image/webp" srcSet="/brand/building-900.webp 900w, /brand/building-1600.webp 1600w" sizes="(max-width: 900px) 100vw, 55vw" />
-                  <img src="/brand/building-1600.png" alt="The Danest Hotel & Suites building: a stone-clad hotel behind a cream wall and black gate, with palm trees." width={1600} height={740} fetchPriority="high" />
-                </picture>
-                <img className="crest" src="/brand/crest-512.png" alt="" width={116} height={116} />
-                {hotel?.highlights[0] && <div className="hero-chip c1" aria-hidden="true"><Icon name="check" size={14} /> {hotel.highlights[0].title}</div>}
-                <div className="hero-chip c2" aria-hidden="true"><Icon name="wave" size={14} /> Pool, gym &amp; lounge</div>
-              </div>
+    <SitePage>
+      {/* hero */}
+      <section className="relative overflow-hidden border-b bg-[linear-gradient(180deg,var(--muted)_0%,var(--background)_100%)]">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 pt-14 pb-10 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:pt-20">
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-700">
+            <Eyebrow>Old Bodija · Ibadan</Eyebrow>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">A calm, comfortable stay in the heart of Bodija.</h1>
+            <p className="mt-5 max-w-md text-lg text-muted-foreground">Well-kept rooms, a pool, a gym and a lounge &amp; bar inside one gated compound. Book directly with the hotel.</p>
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <Button size="lg" asChild>
+                <a href="#rooms">
+                  See rooms & prices <ArrowRight />
+                </a>
+              </Button>
+              {from !== null && (
+                <span className="text-sm text-muted-foreground">
+                  From <b className="tabular-nums text-foreground">{naira(from)}</b> a night
+                </span>
+              )}
             </div>
+          </div>
+          <div className="relative">
+            <div className="absolute inset-x-8 bottom-4 h-24 rounded-[50%] bg-foreground/10 blur-2xl" />
+            <picture>
+              <source type="image/webp" srcSet="/brand/building-900.webp 900w, /brand/building-1600.webp 1600w" sizes="(max-width: 1024px) 100vw, 55vw" />
+              <img src="/brand/building-1600.png" alt={`${hotel?.name ?? 'The hotel'}: a stone-clad building behind a cream wall and black gate, with palm trees`} width={1600} height={740} className="relative w-full" fetchPriority="high" />
+            </picture>
+          </div>
+        </div>
 
-            <form
-              className="booker"
-              aria-label="Check availability"
-              onSubmit={(e) => {
-                e.preventDefault();
-                document.getElementById(typeId ? 'book' : 'rooms')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-            >
-              <Field label="Check-in">
-                <input className="input" type="date" value={checkIn} min={t} onChange={(e) => setIn(e.target.value)} required />
-              </Field>
-              <Field label="Check-out">
-                <input className="input" type="date" value={checkOut} min={addDays(checkIn, 1)} onChange={(e) => setCheckOut(e.target.value)} required />
-              </Field>
-              <Field label="Guests">
-                <select className="input" value={adults} onChange={(e) => setAdults(Number(e.target.value))}>
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>{n} {n === 1 ? 'adult' : 'adults'}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Room">
-                <select className="input" value={typeId} onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : '')}>
-                  <option value="">Any room</option>
-                  {types.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <button className="btn gold lg">See rooms</button>
-            </form>
-
-            {!!hotel?.highlights.length && (
-            <ul className="promises">
-              {hotel.highlights.map(({ title, text }) => (
-                <li key={title} className="reveal">
-                  <Icon name="check" size={20} />
+        {/* availability bar */}
+        <div className="mx-auto max-w-6xl px-4 pb-12 sm:px-6">
+          <Card className="gap-0 py-0 shadow-lg">
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.7fr_auto] lg:items-end">
+              <Field label="Check-in"><DateInput value={checkIn} min={t} onChange={setIn} /></Field>
+              <Field label="Check-out"><DateInput value={checkOut} min={addDays(checkIn, 1)} onChange={setCheckOut} /></Field>
+              <Field label="Guests"><SelectField value={adults} onChange={setAdults} options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: `${n} adult${n > 1 ? 's' : ''}` }))} /></Field>
+              <Button size="lg" asChild className="sm:col-span-2 lg:col-span-1">
+                <a href="#rooms">Check availability</a>
+              </Button>
+            </CardContent>
+          </Card>
+          {!!hotel?.highlights.length && (
+            <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {hotel.highlights.map((h) => (
+                <li key={h.title} className="flex gap-3">
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-brand" />
                   <span>
-                    <b>{title}</b>
-                    {text}
+                    <span className="block text-sm font-medium">{h.title}</span>
+                    {h.text && <span className="block text-sm text-muted-foreground">{h.text}</span>}
                   </span>
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      </section>
+
+      {/* rooms */}
+      <section id="rooms" className="mx-auto max-w-6xl scroll-mt-16 px-4 py-20 sm:px-6">
+        <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <Eyebrow>Rooms & suites</Eyebrow>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Choose your room</h2>
+          </div>
+          {nights > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Prices for <b className="text-foreground">{nights} night{nights > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}, with live availability.
+            </p>
+          )}
+        </div>
+        {types === null ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-80 rounded-xl" />)}</div>
+        ) : hotel && !hotel.bookable ? (
+          <Card className="py-12 text-center shadow-xs">
+            <CardContent>
+              <h3 className="text-lg font-semibold">Online booking opens soon</h3>
+              <p className="mt-2 text-muted-foreground">{hotel.phone ? <>Call <a className="font-medium text-foreground underline" href={`tel:${hotel.phone}`}>{hotel.phone}</a> to book a room.</> : 'Please contact the front desk to book.'}</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className={cn('grid gap-4 md:grid-cols-2', types.length === 4 ? 'xl:grid-cols-4' : 'lg:grid-cols-3')}>
+            {types.map((r) => {
+              const tooSmall = Number(adults) > r.capacity;
+              const full = r.available === 0;
+              return (
+                <Card key={r.id} className={cn('gap-0 overflow-hidden py-0 shadow-xs transition-shadow hover:shadow-md', chosen === r.id && 'ring-2 ring-brand')}>
+                  <CardContent className="flex h-full flex-col p-6">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex size-10 items-center justify-center rounded-lg border bg-muted/50"><BedDouble className="size-5" /></div>
+                      {full ? <StatusPill tone="danger">Fully booked</StatusPill> : r.available <= 2 ? <StatusPill tone="warning">{r.available} left</StatusPill> : <StatusPill tone="success">Available</StatusPill>}
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold">{r.name}</h3>
+                    {r.description && <p className="mt-1.5 text-sm text-muted-foreground">{r.description}</p>}
+                    <ul className="mt-4 grid gap-1.5 text-sm">
+                      {r.amenities.slice(0, 5).map((a) => (
+                        <li key={a} className="flex items-center gap-2"><Check className="size-3.5 text-brand" /> {a}</li>
+                      ))}
+                      <li className="flex items-center gap-2"><Users className="size-3.5 text-brand" /> Sleeps {r.capacity}</li>
+                    </ul>
+                    <div className="mt-auto pt-6">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-sm text-muted-foreground">{nights > 1 ? `${nights} nights` : 'Per night'}</span>
+                        <span className="text-2xl font-semibold tabular-nums">{naira(nights > 0 ? r.total : r.rate)}</span>
+                      </div>
+                      {r.rate_note && <p className="mt-0.5 text-right text-xs text-brand-ink">Includes {r.rate_note.toLowerCase()} pricing</p>}
+                      <Button className="mt-4 w-full" variant={chosen === r.id ? 'default' : 'outline'} disabled={full || tooSmall} onClick={() => choose(r.id)}>
+                        {tooSmall ? `Sleeps up to ${r.capacity}` : full ? 'Not available' : 'Select'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* facilities */}
+      <section id="facilities" className="scroll-mt-16 border-y bg-muted/40">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+          <Eyebrow>Facilities</Eyebrow>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight">Everything for a good stay, inside the gate.</h2>
+          <p className="mt-3 max-w-xl text-muted-foreground">Open to hotel guests and to visitors from around Bodija.</p>
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            {(['pool', 'gym', 'lounge'] as Facility[]).map((f) => {
+              const I = FAC_ICON[f];
+              const low = priceFrom(hotel, f);
+              return (
+                <Card key={f} className="gap-0 py-0 shadow-xs">
+                  <CardContent className="p-6">
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><I className="size-5" /></div>
+                    <h3 className="mt-5 font-semibold">{FACILITY_LABELS[f]}</h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground">{FAC_TEXT[f]}</p>
+                    <p className="mt-4 text-sm font-medium">{low !== null ? <>From <span className="font-mono">{naira(low)}</span></> : 'Ask at the front desk'}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* booking */}
+      {hotel?.bookable !== false && <Booking types={types ?? []} hotel={hotel} chosen={chosen} setChosen={setChosen} checkIn={checkIn} checkOut={checkOut} adults={adults} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} />}
+
+      {/* location */}
+      <section id="location" className="scroll-mt-16 border-t">
+        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2">
+          <div>
+            <Eyebrow>Location</Eyebrow>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">On a quiet street off Old Bodija Road.</h2>
+            <dl className="mt-8 grid gap-6 text-sm">
+              <div className="flex gap-3"><MapPin className="mt-0.5 size-5 text-muted-foreground" /><div><dt className="font-medium">Address</dt><dd className="text-muted-foreground">{hotel?.address}</dd></div></div>
+              {hotel && <div className="flex gap-3"><Clock className="mt-0.5 size-5 text-muted-foreground" /><div><dt className="font-medium">Check-in · check-out</dt><dd className="text-muted-foreground">From {time12(hotel.check_in_time)} · by {time12(hotel.check_out_time)}</dd></div></div>}
+              {hotel?.phone && <div className="flex gap-3"><Phone className="mt-0.5 size-5 text-muted-foreground" /><div><dt className="font-medium">Front desk</dt><dd><a className="text-muted-foreground hover:text-foreground" href={`tel:${hotel.phone}`}>{hotel.phone}</a>{hotel.whatsapp && <> · <a className="text-muted-foreground hover:text-foreground" href={`https://wa.me/${hotel.whatsapp.replace(/\D/g, '').replace(/^0/, '234')}`} target="_blank" rel="noopener noreferrer">WhatsApp</a></>}</dd></div></div>}
+            </dl>
+            {hotel && (
+              <Button variant="outline" className="mt-8" asChild>
+                <a href={mapsUrl(hotel.address)} target="_blank" rel="noopener noreferrer"><MapPin /> Get directions</a>
+              </Button>
             )}
           </div>
-        </section>
-
-        <section className="section" id="rooms">
-          <div className="wrap">
-            <div className="section-head reveal">
-              <div>
-                <span className="eyebrow">Rooms &amp; suites</span>
-                <h2 className="display">Four ways to stay, one standard of care.</h2>
-              </div>
-              <p>
-                {validDates && types.length > 0 && <>Prices for <b>{nights} night{nights > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}, with live availability.</>}
-              </p>
-            </div>
-            <div className="rooms">
-              {types.map((r, i) => {
-                const tooSmall = adults > r.capacity;
-                return (
-                  <article className="room-card reveal" key={r.id} style={{ transitionDelay: `${i * 70}ms` }}>
-                    <div className="swatch">
-                      <RoomScene variant={sceneFor(r.name)} title={`Illustration of the ${r.name}`} />
-                    </div>
-                    <h3>{r.name}</h3>
-                    <p className="muted" style={{ fontSize: 14 }}>{r.description}</p>
-                    <ul>
-                      {r.amenities.slice(0, 4).map((a) => <li key={a}>{a}</li>)}
-                      <li>Sleeps {r.capacity}</li>
-                    </ul>
-                    <div className="price">
-                      <b>{naira(r.rate)}</b> / night
-                      {nights > 1 && <div className="muted" style={{ fontSize: 13 }}>{naira(r.rate * nights)} for {nights} nights</div>}
-                    </div>
-                    <div>
-                      {r.available === 0 ? (
-                        <span className="badge red">Fully booked for these dates</span>
-                      ) : r.available <= 2 ? (
-                        <span className="badge amber">Only {r.available} left for your dates</span>
-                      ) : (
-                        <span className="badge green">Available</span>
-                      )}
-                    </div>
-                    <button className="btn primary block" disabled={r.available === 0 || tooSmall} onClick={() => choose(r.id)}>
-                      {tooSmall ? `Sleeps up to ${r.capacity}` : 'Choose this room'}
-                    </button>
-                  </article>
-                );
-              })}
-              {!hotel && types.length === 0 && Array.from({ length: 4 }, (_, i) => <div key={i} className="room-card skeleton" style={{ height: 520 }} />)}
-              {hotel && !hotel.bookable && (
-                <div className="room-card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40 }}>
-                  <h3>Online booking opens soon</h3>
-                  <p className="muted">{hotel.phone ? <>Call us on <a href={`tel:${hotel.phone}`}>{hotel.phone}</a> to book a room.</> : 'Please visit or call the front desk to book a room.'}</p>
-                </div>
-              )}
-            </div>
+          <div className="overflow-hidden rounded-xl border bg-muted shadow-xs">
+            {hotel && <iframe title={`Map of ${hotel.name}`} src={mapEmbed(hotel.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="h-96 w-full" />}
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="section facilities" id="facilities">
-          <div className="wrap">
-            <div className="section-head reveal">
-              <div>
-                <span className="eyebrow">Pool, gym &amp; lounge</span>
-                <h2 className="display">More than a place to sleep.</h2>
-              </div>
-              <p>Staying with us or just visiting Bodija for the day — the pool, gym and lounge are open to everyone.</p>
-            </div>
-            <div className="fac-grid">
-              {(['pool', 'gym', 'lounge'] as Facility[]).map((k) => ({ scene: FAC_SCENE[k], name: FACILITY_LABELS[k], text: FAC_TEXT[k], tag: priceTag(hotel, k) })).map((f, i) => (
-                <article className="fac reveal" key={f.name} style={{ transitionDelay: `${i * 90}ms` }}>
-                  <div className="fac-art">{f.scene}</div>
-                  <div className="fac-text">
-                    <h3>{f.name}</h3>
-                    <p>{f.text}</p>
-                    <span className="tag">{f.tag}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
+      {/* faq */}
+      <section className="border-t bg-muted/40">
+        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_1.5fr]">
+          <div>
+            <Eyebrow>Good to know</Eyebrow>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight">Questions guests ask</h2>
+            <p className="mt-3 text-muted-foreground">Already booked? <Link to="/booking" className="font-medium text-foreground underline underline-offset-4">Check your booking</Link>.</p>
           </div>
-        </section>
-
-        <section className="section day" aria-labelledby="day-title">
-          <div className="wrap">
-            <div className="section-head reveal">
-              <div>
-                <span className="eyebrow">A day at Danest</span>
-                <h2 className="display" id="day-title">From first light to last song.</h2>
-              </div>
-              <p>Everything you need for a good stay is inside our gate. Here's how a day can go.</p>
-            </div>
-            <div className="day-grid reveal">
-              <div className="day-stage" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-                {DAY.map((d, i) => (
-                  <div key={d.time} className={`day-scene${i === moment ? ' on' : ''}`} aria-hidden={i !== moment}>
-                    {d.scene}
-                  </div>
-                ))}
-                <div className="day-progress" key={`${moment}-${paused}`}>
-                  <i className={paused ? 'paused' : ''} />
-                </div>
-              </div>
-              <ol className="day-steps">
-                {DAY.map((d, i) => (
-                  <li key={d.time}>
-                    <button aria-current={i === moment} onClick={() => (setMoment(i), setPaused(true))}>
-                      <span className="time">{d.time}</span>
-                      <span>
-                        <b>{d.title}</b>
-                        <span className="muted">{d.text}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        </section>
-
-        <section className="section" id="visit" style={{ paddingTop: 40 }}>
-          <div className="wrap visit">
-            <div className="reveal">
-              <span className="eyebrow">Find us</span>
-              <h2 className="display" style={{ fontSize: 'clamp(34px, 4.4vw, 56px)', marginTop: 12 }}>
-                A quiet street, minutes from everything.
-              </h2>
-              <dl>
-                <div>
-                  <dt>Address</dt>
-                  <dd>{hotel?.address}</dd>
-                </div>
-                {hotel && (
-                  <div>
-                    <dt>Check-in · Check-out</dt>
-                    <dd>From {time12(hotel.check_in_time)} · By {time12(hotel.check_out_time)}</dd>
-                  </div>
-                )}
-                {hotel?.phone && (
-                  <div>
-                    <dt>Front desk</dt>
-                    <dd><a href={`tel:${hotel.phone}`}>{hotel.phone}</a>{hotel.whatsapp && <> · <a href={`https://wa.me/${hotel.whatsapp.replace(/\D/g, '').replace(/^0/, '234')}`} target="_blank" rel="noopener noreferrer">WhatsApp</a></>}</dd>
-                  </div>
-                )}
-              </dl>
-              {hotel && (
-                <a className="btn lg" style={{ marginTop: 28 }} href={mapsUrl(hotel.address)} target="_blank" rel="noopener noreferrer">
-                  <Icon name="pin" /> Get directions
-                </a>
-              )}
-            </div>
-            <div className="map-card reveal">
-              {hotel && <iframe title={`Map showing ${hotel.name}`} src={mapEmbed(hotel.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />}
-              <div style={{ padding: '16px 24px 22px', display: 'flex', gap: 12, alignItems: 'center', borderTop: '1px solid var(--line)' }}>
-                <Icon name="pin" size={22} />
-                <div>
-                  <b>{hotel?.name}</b>
-                  <div className="muted" style={{ fontSize: 14 }}>{hotel?.address}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {hotel?.bookable !== false && <BookingSection types={types} checkIn={checkIn} checkOut={checkOut} adults={adults} typeId={typeId} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} setTypeId={setTypeId} />}
-
-        <section className="section faq" aria-labelledby="faq-title">
-          <div className="wrap faq-grid">
-            <div className="reveal">
-              <span className="eyebrow">Good to know</span>
-              <h2 className="display" id="faq-title" style={{ fontSize: 'clamp(30px, 3.6vw, 44px)', marginTop: 12 }}>Questions guests ask us.</h2>
-              <p className="muted" style={{ marginTop: 12 }}>
-                Already booked? <Link to="/booking">Check your booking</Link> with your reference and phone number.
-              </p>
-            </div>
-            <div className="reveal">
-              {([
-                ['Do I need to pay when I book?', 'No. Send your request and we confirm it by phone. You pay when you arrive — cash, bank transfer or POS.'],
-                ['What do I need at check-in?', "Please bring a valid photo ID: NIN slip or card, international passport, driver's licence or voter's card."],
-                hotel && ['What time can I check in and out?', `Check-in is from ${time12(hotel.check_in_time)} and check-out is by ${time12(hotel.check_out_time)}. Ask us about early arrival or late departure.`],
-                hotel?.facility_items.some((i) => i.facility !== 'lounge') && ['Can I use the pool or gym without staying?', 'Yes. Passes are sold at the front desk.'],
-                ['How do I change or cancel?', `Call the front desk${hotel?.phone ? ` on ${hotel.phone}` : ''} with your booking reference and we will sort it out with you.`],
-              ].filter(Boolean) as [string, string][]).map(([q, a]) => (
-                <details key={q} className="faq-item">
-                  <summary>{q}</summary>
-                  <p>{a}</p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <SiteFooter />
-    </div>
+          <Accordion type="single" collapsible className="w-full">
+            {(
+              [
+                ['Do I need to pay when I book?', hotel?.online_payments ? 'You can pay a deposit online by card or transfer to confirm straight away, or send a request and pay when you arrive.' : 'No. Send your request and we confirm by phone. You pay when you arrive — cash, transfer or POS.'],
+                ['What do I need at check-in?', "A valid photo ID: NIN slip or card, international passport, driver's licence or voter's card."],
+                hotel && ['What time is check-in and check-out?', `Check-in is from ${time12(hotel.check_in_time)}; check-out is by ${time12(hotel.check_out_time)}. Ask us about early arrival or late departure.`],
+                hotel?.facility_items.some((i) => i.facility !== 'lounge') && ['Can I use the pool or gym without staying?', 'Yes — passes are sold at the front desk.'],
+                ['How do I change or cancel?', `Call the front desk${hotel?.phone ? ` on ${hotel.phone}` : ''} with your booking reference.`],
+              ].filter(Boolean) as [string, string][]
+            ).map(([q, a], i) => (
+              <AccordionItem key={q} value={`q${i}`}>
+                <AccordionTrigger className="text-base">{q}</AccordionTrigger>
+                <AccordionContent className="text-muted-foreground">{a}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      </section>
+    </SitePage>
   );
 }
 
-function BookingSection(p: {
+function Booking(p: {
   types: RoomType[];
+  hotel: PublicHotel | null;
+  chosen: number | null;
+  setChosen: (id: number | null) => void;
   checkIn: string;
   checkOut: string;
-  adults: number;
-  typeId: number | '';
+  adults: string;
   setCheckIn: (v: string) => void;
   setCheckOut: (v: string) => void;
-  setAdults: (v: number) => void;
-  setTypeId: (v: number | '') => void;
+  setAdults: (v: string) => void;
 }) {
   const t = todayISO();
   const [form, setForm] = useState({ name: '', phone: '', email: '', notes: '', company: '' });
-  const [done, setDone] = useState<{ code: string; total: number; nights: number; room_type: string } | null>(null);
+  const [done, setDone] = useState<{ code: string; total: number; nights: number; room_type: string; deposit: number } | null>(null);
   const { busy, error, submit } = useSubmit();
-  const type = p.types.find((x) => x.id === p.typeId);
+  const pay = useSubmit();
+  const type = p.types.find((x) => x.id === p.chosen);
   const nights = Math.max(0, nightsBetween(p.checkIn, p.checkOut));
-  const total = useMemo(() => (type ? type.rate * nights : 0), [type, nights]);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      const r = await api('/public/booking-requests', {
-        body: { ...form, check_in: p.checkIn, check_out: p.checkOut, adults: p.adults, room_type_id: p.typeId },
-      });
-      setDone(r);
+      setDone(await api('/public/booking-requests', { body: { ...form, check_in: p.checkIn, check_out: p.checkOut, adults: Number(p.adults), room_type_id: p.chosen } }));
     });
   };
+  const payNow = () =>
+    pay.submit(async () => {
+      const r = await api<{ url: string }>('/public/payments/start', { body: { code: done!.code, phone: form.phone, email: form.email } });
+      window.location.href = r.url;
+    });
 
   return (
-    <section className="section book-section" id="book">
-      <div className="wrap book-grid">
-        <div className="reveal">
-          <span className="eyebrow">Book direct</span>
-          <h2 className="display" style={{ fontSize: 'clamp(34px, 4.4vw, 56px)', margin: '12px 0 18px' }}>
-            Your room, held in two minutes.
-          </h2>
-          <p className="muted" style={{ fontSize: 17, maxWidth: '40ch' }}>
-            No card and no payment needed now. Send your request, our front desk calls you to confirm, and you pay when you arrive.
+    <section id="book" className="scroll-mt-16 border-t">
+      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_1.2fr]">
+        <div>
+          <Eyebrow>Book direct</Eyebrow>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight">Reserve in two minutes.</h2>
+          <p className="mt-3 max-w-md text-muted-foreground">
+            {p.hotel?.online_payments ? 'Pay a deposit online to confirm instantly, or send a request and pay on arrival.' : 'No payment needed now. We call to confirm, and you pay when you arrive — cash, transfer or POS.'}
           </p>
-          <ol className="steps">
-            <li><span><b>Send your request</b> — takes two minutes.</span></li>
-            <li><span><b>We call to confirm</b> — and answer any questions.</span></li>
-            <li><span><b>Arrive and settle in</b> — pay by cash, transfer or POS.</span></li>
+          <ol className="mt-8 space-y-4">
+            {['Choose your dates and room', p.hotel?.online_payments ? 'Pay a deposit, or send a request' : 'Send your details', 'Arrive, show your ID, and settle in'].map((s, i) => (
+              <li key={s} className="flex items-center gap-3 text-sm">
+                <span className="flex size-7 items-center justify-center rounded-full border text-xs font-semibold">{i + 1}</span>
+                {s}
+              </li>
+            ))}
           </ol>
           {type && (
-            <div className="card" style={{ marginTop: 28, padding: '8px 20px' }}>
-              <div className="summary-line"><span>{type.name}</span><span>{naira(type.rate)} / night</span></div>
-              <div className="summary-line"><span>{fmtDateLong(p.checkIn)} → {fmtDateLong(p.checkOut)}</span><span>{nights} night{nights === 1 ? '' : 's'}</span></div>
-              <div className="summary-line"><span>Total, pay on arrival</span><span className="num">{naira(total)}</span></div>
-            </div>
+            <Card className="mt-8 gap-0 py-0 shadow-xs">
+              <CardContent className="space-y-2 p-5 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Room</span><span className="font-medium">{type.name}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Dates</span><span>{fmtDateLong(p.checkIn)} → {fmtDateLong(p.checkOut)}</span></div>
+                <div className="flex justify-between border-t pt-2 font-semibold"><span>{nights} night{nights === 1 ? '' : 's'}</span><Money value={type.total} /></div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
-        <div className="book-form reveal">
-          {done ? (
-            <div className="success" role="status">
-              <div className="success-mark"><Icon name="check" size={34} /></div>
-              <h3 className="display" style={{ fontSize: 28, marginTop: 8 }}>Request received</h3>
-              <div className="code">{done.code}</div>
-              <p className="muted">
-                {done.room_type} · {done.nights} night{done.nights === 1 ? '' : 's'} · {naira(done.total)}
-                <br />
-                Keep this reference. We'll call <b>{form.phone}</b> shortly to confirm your stay.
-              </p>
-              <div className="row" style={{ justifyContent: 'center', marginTop: 20 }}>
-                <Link className="btn" to={`/booking?code=${done.code}`}>Check its status</Link>
-                <button className="btn ghost" onClick={() => (setDone(null), setForm({ name: '', phone: '', email: '', notes: '', company: '' }))}>
-                  Make another booking
-                </button>
+        <Card className="gap-0 py-0 shadow-sm">
+          <CardContent className="p-6">
+            {done ? (
+              <div className="py-6 text-center">
+                <CheckCircle2 className="mx-auto size-12 text-success" />
+                <h3 className="mt-4 text-xl font-semibold">Request received</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Your booking reference</p>
+                <p className="mt-2 font-mono text-3xl font-semibold tracking-wider">{done.code}</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {done.room_type} · {done.nights} night{done.nights === 1 ? '' : 's'} · {naira(done.total)}
+                </p>
+                {done.deposit > 0 ? (
+                  <div className="mx-auto mt-6 max-w-sm space-y-3 rounded-lg border bg-muted/40 p-4 text-left">
+                    <p className="text-sm">Pay a <b>{naira(done.deposit)}</b> deposit now to confirm instantly.</p>
+                    {!form.email && <Input type="email" placeholder="Email for your receipt" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />}
+                    <ErrorNote error={pay.error} />
+                    <Button className="w-full" disabled={pay.busy || !form.email} onClick={payNow}><CreditCard /> {pay.busy ? 'Opening Paystack…' : `Pay ${naira(done.deposit)}`}</Button>
+                    <p className="text-xs text-muted-foreground">Or pay on arrival — we'll call {form.phone} to confirm.</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">We'll call <b className="text-foreground">{form.phone}</b> shortly to confirm.</p>
+                )}
+                <div className="mt-6 flex justify-center gap-2">
+                  <Button variant="outline" asChild><Link to={`/booking?code=${done.code}`}>Check status</Link></Button>
+                  <Button variant="ghost" onClick={() => (setDone(null), setForm({ name: '', phone: '', email: '', notes: '', company: '' }), p.setChosen(null))}>New booking</Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <form className="stack" onSubmit={onSubmit}>
-              <div className="grid-2">
-                <Field label="Check-in">
-                  <input className="input" type="date" value={p.checkIn} min={t} onChange={(e) => p.setCheckIn(e.target.value)} required />
-                </Field>
-                <Field label="Check-out">
-                  <input className="input" type="date" value={p.checkOut} min={addDays(p.checkIn, 1)} onChange={(e) => p.setCheckOut(e.target.value)} required />
-                </Field>
-              </div>
-              <div className="grid-2">
-                <Field label="Room">
-                  <select className="input" value={p.typeId} onChange={(e) => p.setTypeId(e.target.value ? Number(e.target.value) : '')} required>
-                    <option value="">Choose a room…</option>
-                    {p.types.map((r) => (
-                      <option key={r.id} value={r.id} disabled={r.available === 0}>
-                        {r.name} — {naira(r.rate)}{r.available === 0 ? ' (full)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Guests">
-                  <select className="input" value={p.adults} onChange={(e) => p.setAdults(Number(e.target.value))}>
-                    {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n} {n === 1 ? 'adult' : 'adults'}</option>)}
-                  </select>
-                </Field>
-              </div>
-              <Field label="Full name">
-                <input className="input" autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={120} />
-              </Field>
-              <div className="grid-2">
-                <Field label="Phone number">
-                  <input className="input" type="tel" autoComplete="tel" inputMode="tel" placeholder="080…" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required pattern="[+\d][\d\s\-]{6,19}" />
-                </Field>
-                <Field label="Email (optional)">
-                  <input className="input" type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} maxLength={254} />
-                </Field>
-              </div>
-              <Field label="Anything we should know? (optional)">
-                <textarea className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} maxLength={500} placeholder="Late arrival, airport pickup, a quiet room…" />
-              </Field>
-              <label className="hp" aria-hidden="true">
-                Company
-                <input tabIndex={-1} autoComplete="off" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
-              </label>
-              <ErrorBox error={error} />
-              <button className="btn gold lg block" disabled={busy || !p.typeId}>
-                {busy ? 'Sending…' : type ? `Request booking · ${naira(total)}` : 'Request booking'}
-              </button>
-              <p className="muted" style={{ fontSize: 13, textAlign: 'center' }}>We only use your details to confirm this booking.</p>
-            </form>
-          )}
-        </div>
+            ) : (
+              <form className="grid gap-4" onSubmit={onSubmit}>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Check-in"><DateInput value={p.checkIn} min={t} onChange={p.setCheckIn} /></Field>
+                  <Field label="Check-out"><DateInput value={p.checkOut} min={addDays(p.checkIn, 1)} onChange={p.setCheckOut} /></Field>
+                  <Field label="Room">
+                    <SelectField value={p.chosen ? String(p.chosen) : ''} onChange={(v) => p.setChosen(Number(v))} placeholder="Choose a room" options={p.types.map((r) => ({ value: String(r.id), label: `${r.name} — ${naira(r.total)}`, disabled: r.available === 0 }))} />
+                  </Field>
+                  <Field label="Guests"><SelectField value={p.adults} onChange={p.setAdults} options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: `${n} adult${n > 1 ? 's' : ''}` }))} /></Field>
+                </div>
+                <Field label="Full name"><Input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={120} /></Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Phone"><Input type="tel" autoComplete="tel" inputMode="tel" placeholder="080…" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required pattern="[+\d][\d\s\-]{6,19}" /></Field>
+                  <Field label={p.hotel?.online_payments ? 'Email (for your receipt)' : 'Email (optional)'}><Input type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} maxLength={254} /></Field>
+                </div>
+                <Field label="Anything we should know?"><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} maxLength={500} rows={3} placeholder="Late arrival, airport pickup, a quiet room…" /></Field>
+                <label className="absolute -left-[10000px] h-px w-px overflow-hidden" aria-hidden="true">
+                  Company <input tabIndex={-1} autoComplete="off" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
+                </label>
+                <ErrorNote error={error} />
+                <Button size="lg" disabled={busy || !p.chosen}>{busy ? 'Sending…' : type ? `Request booking · ${naira(type.total)}` : 'Choose a room above'}</Button>
+                <p className="text-center text-xs text-muted-foreground">We only use your details to manage this booking.</p>
+              </form>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </section>
   );

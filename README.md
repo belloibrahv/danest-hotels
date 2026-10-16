@@ -24,7 +24,11 @@ One system that runs the hotel the way the owner described it:
 | **Owner reporting** | Room revenue earned night by night (night-audit style). **Occupancy, ADR, RevPAR**, each compared with the previous period. 14-day on-the-books forecast. Cash collected by method. P&L export for Excel |
 | **Security** | Two-step sign-in (authenticator app, single-use recovery codes, replay protection). Secrets encrypted at rest. Device and session management. Re-authentication for sensitive changes |
 | **Guest website** | Live availability, illustrated rooms and facilities, "a day at Danest" story, FAQ, and **Manage booking** (`/booking`) for guests to check their reservation |
-| **Brand** | **Crest**, the Danest design language: palette from the crest and building, type, voice, motion and illustration. Living guide at `/brand` |
+| **Rates & seasons** | Every night is priced on its own. Rules raise or lower the base rate for weekends, seasons and promotions (by percentage, by a naira amount, or a fixed price), and a 14-night price grid shows the result. Past nights never change |
+| **Company accounts** | Negotiated discounts, credit limits, and "bill to company" at check-out, which moves the balance to the company's account (city ledger). Statements with a running balance; payments on account |
+| **Online deposits** | Paystack hosted checkout from the website and Manage booking. Payments are verified on the server, webhooks are signature-checked, each payment is recorded exactly once, and a paid deposit confirms the booking |
+| **Guest messages** | Confirmation, reminder, balance and thank-you messages from each reservation. Sent by SMS when Termii is connected, otherwise opened ready to send on WhatsApp. Every message is logged |
+| **Interface** | shadcn/ui on Tailwind CSS v4 (Radix), Geist type, light and dark mode, collapsible sidebar, ⌘K command palette, side sheets for reservations, guests and companies, recharts charts with a palette checked for colour-blindness. Design language at `/brand` |
 
 ---
 
@@ -65,7 +69,7 @@ Production-style (one process serves the API and the built site on :4000):
 npm run build && npm start
 ```
 
-Other scripts: `npm test` (38 end-to-end API tests, including a complete real-hotel run that starts from an empty database) and `npm run typecheck`.
+Other scripts: `npm test` (47 end-to-end API tests, including a complete real-hotel run from an empty database and Paystack and SMS flows against mock servers) and `npm run typecheck`.
 
 Environment variables:
 
@@ -74,6 +78,9 @@ Environment variables:
 | `DANEST_DB` | Path to the SQLite file (default `data/danest.db`; on Railway `/data/danest.db` on a volume) |
 | `DANEST_SETUP_CODE` | One-time code for creating the owner account at `/setup`. If it isn't set, a code is generated at boot and printed to the server log |
 | `DANEST_SECRET` | Key for encrypting two-factor secrets and recovery-code hashes. **Set this in production** and keep it out of the database volume. Without it, a key file is generated next to the database |
+| `PAYSTACK_SECRET_KEY` | Turns on online deposits. In Paystack, set the webhook URL to `https://<your-domain>/api/paystack/webhook`. The deposit percentage is set in Settings → Payments & messages |
+| `PUBLIC_URL` | The site's public address, used for Paystack's return link (on Railway, `RAILWAY_PUBLIC_DOMAIN` is used automatically) |
+| `TERMII_API_KEY`, `TERMII_SENDER_ID` | Turns on SMS guest messages. Without them, staff send each message on WhatsApp with one tap |
 | `VITE_SHOW_DEMO_LOGINS=1` | At build time, shows one-click demo accounts on the sign-in page |
 
 Schema changes are versioned migrations in `server/db.ts` (`PRAGMA user_version`). They run automatically on start and are safe on existing data.
@@ -161,9 +168,10 @@ Room types, rates and the 20-room layout; facility prices; the drinks list; 24-h
 - **Close the day** (`/staff/close-day`): a review of no-shows, guests past their departure date, unpaid bills and dirty rooms. The manager then counts the cash against what the system expects, and any difference must be explained. A closed day is **locked**: no payment, sale, purchase or expense can be dated on or before it. Days close in order, and reopening the latest one needs a reason that's logged.
 - **Settings**: hotel details, room types and rates, rooms, and the facility price list. The website, booking engine, invoices and front desk all read from these settings.
 
-## Roadmap — Phase 3
+## Roadmap — next
 
-- Rate plans: seasons, weekend rates, corporate accounts with monthly invoicing.
-- Paystack deposits on the website; SMS/WhatsApp confirmations and pre-arrival messages.
+- Automatic pre-arrival and thank-you messages on a schedule (they're manual today).
+- Emailed company statements and invoices as PDF.
+- Channel manager links (Booking.com, Expedia) once the hotel lists there.
 - Supplier accounts and purchase orders; payroll detail; budget versus actual.
 - Multi-property support.
