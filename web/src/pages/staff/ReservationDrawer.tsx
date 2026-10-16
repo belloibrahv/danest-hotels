@@ -178,6 +178,11 @@ export function ReservationDrawer({ id, onClose }: { id: number; onClose: () => 
                 <button className="btn sm" onClick={() => setPanel(panel === 'dates' ? null : 'dates')}><Icon name="calendar" size={14} /> Change dates</button>
                 {r.room_id && <button className="btn sm" onClick={() => setPanel(panel === 'move' ? null : 'move')}><Icon name="swap" size={14} /> Move room</button>}
                 <span className="spacer" />
+                {upcoming && r.check_in <= t && (
+                  <button className="btn sm" disabled={busy} onClick={() => confirm(`Mark ${r.guest_name} as a no-show?`) && act('no-show', {}, 'Marked as no-show')}>
+                    No-show
+                  </button>
+                )}
                 {upcoming && (
                   <button className="btn sm danger" disabled={busy} onClick={() => confirm('Cancel this reservation?') && act('cancel', {}, 'Reservation cancelled')}>
                     Cancel booking

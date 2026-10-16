@@ -4,6 +4,7 @@ import { RoomScene } from '../components/illustrations';
 import { ErrorBox, Field, Icon, useSubmit } from '../components/ui';
 import { api, fmtDateLong, naira } from '../lib/api';
 import { SiteFooter, SiteNav } from './Home';
+import { sceneFor, time12, useHotel } from '../lib/hotel';
 
 interface Booking {
   code: string;
@@ -31,6 +32,7 @@ export default function ManageBooking() {
   const [code, setCode] = useState(params.get('code') ?? '');
   const [phone, setPhone] = useState('');
   const [b, setB] = useState<Booking | null>(null);
+  const hotel = useHotel();
   const { busy, error, submit } = useSubmit();
 
   const onSubmit = (e: FormEvent) => {
@@ -39,7 +41,7 @@ export default function ManageBooking() {
   };
 
   const s = b ? STATUS[b.status] : null;
-  const variant = b ? (/royal/i.test(b.room_type) ? 'royal' : /executive/i.test(b.room_type) ? 'executive' : /deluxe/i.test(b.room_type) ? 'deluxe' : 'standard') : 'deluxe';
+  const variant = b ? sceneFor(b.room_type) : 'deluxe';
 
   return (
     <div className="site">
@@ -72,13 +74,13 @@ export default function ManageBooking() {
                 <div className="card" style={{ padding: '6px 20px' }}>
                   <div className="summary-line"><span>Reference</span><span className="num">{b.code}</span></div>
                   <div className="summary-line"><span>Room</span><span>{b.room_type}</span></div>
-                  <div className="summary-line"><span>Arrive</span><span>{fmtDateLong(b.check_in)}, from 2 pm</span></div>
-                  <div className="summary-line"><span>Leave</span><span>{fmtDateLong(b.check_out)}, by noon</span></div>
+                  <div className="summary-line"><span>Arrive</span><span>{fmtDateLong(b.check_in)}{hotel ? `, from ${time12(hotel.check_in_time)}` : ''}</span></div>
+                  <div className="summary-line"><span>Leave</span><span>{fmtDateLong(b.check_out)}{hotel ? `, by ${time12(hotel.check_out_time)}` : ''}</span></div>
                   <div className="summary-line"><span>{b.nights} night{b.nights > 1 ? 's' : ''}</span><span className="num">{naira(b.total)}</span></div>
                   {b.paid > 0 && <div className="summary-line" style={{ fontWeight: 400 }}><span>Paid so far</span><span className="num">{naira(b.paid)}</span></div>}
                   <div className="summary-line"><span>To pay on arrival</span><span className="num">{naira(Math.max(0, b.total - b.paid))}</span></div>
                 </div>
-                <p className="muted" style={{ fontSize: 14 }}>Need to change your dates or cancel? Call the front desk and quote <b>{b.code}</b>.</p>
+                <p className="muted" style={{ fontSize: 14 }}>Need to change your dates or cancel? Call the front desk{hotel?.phone ? <> on <a href={`tel:${hotel.phone}`}>{hotel.phone}</a></> : ''} and quote <b>{b.code}</b>.</p>
                 <div className="row">
                   <Link to="/" className="btn"><Icon name="arrow" size={14} /> Back to the hotel</Link>
                   <button className="btn ghost" onClick={() => (setB(null), setPhone(''))}>Look up another</button>

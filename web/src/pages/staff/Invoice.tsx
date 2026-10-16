@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { HOTEL, PAYMENT_LABELS } from '../../../../shared/constants';
+import { PAYMENT_LABELS, type HotelSettings } from '../../../../shared/constants';
 import { ErrorBox, Icon, Loading } from '../../components/ui';
 import { fmtDate, fmtDateLong, naira, todayISO } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
@@ -10,12 +10,13 @@ import { balanceOf, type Reservation } from './ReservationDrawer';
 export default function Invoice() {
   const { id } = useParams();
   const { data: r, error } = useApi<Reservation>(`/reservations/${Number(id)}`);
+  const { data: hotel } = useApi<HotelSettings>('/settings');
   useEffect(() => {
     if (r) document.title = `Invoice ${r.code} — ${r.guest_name}`;
   }, [r]);
 
   if (error) return <div className="invoice-page"><ErrorBox error={error} /></div>;
-  if (!r) return <Loading />;
+  if (!r || !hotel) return <Loading />;
   const balance = balanceOf(r);
   const settled = r.status === 'checked_out' && balance <= 0;
 
@@ -33,8 +34,12 @@ export default function Invoice() {
           <div className="row" style={{ gap: 14, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
             <img src="/brand/crest-128.png" alt="" width={64} height={64} />
             <div>
-              <b style={{ fontFamily: 'var(--serif)', fontSize: 20 }}>{HOTEL.name}</b>
-              <div className="muted" style={{ fontSize: 13, maxWidth: 280 }}>{HOTEL.address}</div>
+              <b style={{ fontFamily: 'var(--serif)', fontSize: 20 }}>{hotel.name}</b>
+              <div className="muted" style={{ fontSize: 13, maxWidth: 280 }}>
+                {hotel.address}
+                {(hotel.phone || hotel.email) && <br />}
+                {[hotel.phone, hotel.email].filter(Boolean).join(' · ')}
+              </div>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -87,10 +92,20 @@ export default function Invoice() {
         </table>
 
         <footer style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between', gap: 24, fontSize: 13 }} className="muted">
-          <span>
-            Thank you for staying with us.
-            <br />
-            <i style={{ fontFamily: 'var(--serif)', color: 'var(--red)' }}>{HOTEL.tagline}.</i>
+          <span style={{ maxWidth: 380 }}>
+            {hotel.invoice_note}
+            {hotel.bank_details && balance > 0 && (
+              <>
+                <br />
+                <b style={{ color: 'var(--ink)' }}>Pay by transfer:</b> {hotel.bank_details}
+              </>
+            )}
+            {hotel.tagline && (
+              <>
+                <br />
+                <i style={{ fontFamily: 'var(--serif)', color: 'var(--red)' }}>{hotel.tagline}.</i>
+              </>
+            )}
           </span>
           <span style={{ textAlign: 'right' }}>
             Guest signature

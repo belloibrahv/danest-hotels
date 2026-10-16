@@ -10,6 +10,7 @@ import './styles.css';
 const Staff = lazy(() => import('./pages/staff/StaffApp'));
 const ManageBooking = lazy(() => import('./pages/ManageBooking'));
 const Brand = lazy(() => import('./pages/Brand'));
+const Setup = lazy(() => import('./pages/Setup'));
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -21,6 +22,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="/" element={<Home />} />
               <Route path="/booking" element={<ManageBooking />} />
               <Route path="/brand" element={<Brand />} />
+              <Route path="/setup" element={<Setup />} />
               <Route path="/staff/*" element={<Staff />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

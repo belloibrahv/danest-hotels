@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api } from '../../lib/api';
 import { LoungeScene } from '../../components/illustrations';
 import { ErrorBox, Field, Icon, useSubmit, useToast } from '../../components/ui';
 import { homeFor, useAuth } from '../../lib/auth';
@@ -22,6 +23,10 @@ export default function Login() {
   const [code, setCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
   const { busy, error, setError, submit } = useSubmit();
+  const [needsSetup, setNeedsSetup] = useState(false);
+  useEffect(() => {
+    api<{ needs_setup: boolean }>('/setup/status').then((r) => setNeedsSetup(r.needs_setup), () => {});
+  }, []);
 
   const go = (u: string, p: string) =>
     submit(async () => {
@@ -110,6 +115,12 @@ export default function Login() {
               <h1 className="display" style={{ fontSize: 34 }}>Sign in</h1>
               <p className="muted" style={{ marginTop: 6 }}>Use the account your manager gave you.</p>
             </div>
+            {needsSetup && (
+              <div className="status-card gold">
+                <b>This hotel hasn't been set up yet.</b>
+                <p>The owner creates the first account with the setup code. <Link to="/setup">Start setup →</Link></p>
+              </div>
+            )}
             <Field label="Username">
               <input className="input" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required />
             </Field>

@@ -8,10 +8,12 @@ import { useAuth, homeFor } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
 import Account from './Account';
 import Calendar from './Calendar';
+import CloseDay from './CloseDay';
 import Dashboard from './Dashboard';
 import Expenses from './Expenses';
 import FrontDesk from './FrontDesk';
 import Guests from './Guests';
+import Housekeeping from './Housekeeping';
 import Inventory from './Inventory';
 import Invoice from './Invoice';
 import Login from './Login';
@@ -20,6 +22,7 @@ import Pos from './Pos';
 import Purchases from './Purchases';
 import Reports from './Reports';
 import Reservations from './Reservations';
+import Settings from './Settings';
 import Team from './Team';
 
 type NavItem = { to: string; label: string; icon: string; roles: Role[]; el: ReactNode; group: string; end?: boolean };
@@ -30,14 +33,17 @@ const NAV: NavItem[] = [
   { to: '/staff/front-desk', label: 'Room board', icon: 'bed', roles: ['manager', 'frontdesk'], el: <FrontDesk />, group: 'Front office' },
   { to: '/staff/reservations', label: 'Reservations', icon: 'calendar', roles: ['manager', 'frontdesk'], el: <Reservations />, group: 'Front office' },
   { to: '/staff/guests', label: 'Guests', icon: 'user', roles: ['manager', 'frontdesk'], el: <Guests />, group: 'Front office' },
+  { to: '/staff/housekeeping', label: 'Housekeeping', icon: 'sparkle', roles: ['manager', 'frontdesk', 'housekeeping'], el: <Housekeeping />, group: 'Front office' },
   { to: '/staff/pos', label: 'Bar & shop till', icon: 'glass', roles: ['manager', 'bar'], el: <Pos />, group: 'Sell' },
-  { to: '/staff/other-income', label: 'Gym, pool & lounge', icon: 'sparkle', roles: ['manager', 'frontdesk'], el: <OtherIncome />, group: 'Sell' },
+  { to: '/staff/other-income', label: 'Gym, pool & lounge', icon: 'wave', roles: ['manager', 'frontdesk'], el: <OtherIncome />, group: 'Sell' },
   { to: '/staff/inventory', label: 'Stock', icon: 'box', roles: ['manager', 'bar'], el: <Inventory />, group: 'Costs' },
   { to: '/staff/purchases', label: 'Purchases', icon: 'cart', roles: ['manager'], el: <Purchases />, group: 'Costs' },
   { to: '/staff/expenses', label: 'Expenses', icon: 'receipt', roles: ['manager'], el: <Expenses />, group: 'Costs' },
+  { to: '/staff/close-day', label: 'Close the day', icon: 'moon', roles: ['manager'], el: <CloseDay />, group: 'Owner' },
   { to: '/staff/reports', label: 'Profit & loss', icon: 'chart', roles: ['manager'], el: <Reports />, group: 'Owner' },
   { to: '/staff/team', label: 'Team & activity', icon: 'users', roles: ['manager'], el: <Team />, group: 'Owner' },
-  { to: '/staff/account', label: 'My account', icon: 'lock', roles: ['manager', 'frontdesk', 'bar'], el: <Account />, group: 'You' },
+  { to: '/staff/settings', label: 'Settings', icon: 'palette', roles: ['manager'], el: <Settings />, group: 'Owner' },
+  { to: '/staff/account', label: 'My account', icon: 'lock', roles: ['manager', 'frontdesk', 'bar', 'housekeeping'], el: <Account />, group: 'You' },
 ];
 
 export default function StaffApp() {
@@ -46,7 +52,7 @@ export default function StaffApp() {
   return (
     <Routes>
       <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
-      <Route path="invoice/:id" element={user && user.role !== 'bar' ? <Invoice /> : <Navigate to="/staff/login" replace />} />
+      <Route path="invoice/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
       <Route
         path="*"
         element={
@@ -69,7 +75,7 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const [palette, setPalette] = useState(false);
   const loc = useLocation();
-  const isDesk = user!.role !== 'bar';
+  const isDesk = user!.role === 'manager' || user!.role === 'frontdesk';
   const pending = useApi<{ id: number }[]>(isDesk ? `/reservations?status=pending&v=${desk.version}&p=${loc.pathname}` : null);
   useEffect(() => setOpen(false), [loc.pathname]);
 

@@ -4,6 +4,8 @@ import { DailyBars, HBars } from '../../components/charts';
 import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
 import { fmtDate, fmtDateLong, naira, nairaShort, pct } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { SetupChecklist } from './Settings';
+import { addDays } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 
 export interface Kpis {
@@ -34,6 +36,7 @@ export interface PnL {
 interface Dash {
   ops: {
     date: string;
+    last_closed: string | null;
     rooms: { total: number; occupied: number; available: number; cleaning: number; maintenance: number; sellable: number };
     occupancy: number;
     arrivals: number;
@@ -81,9 +84,16 @@ export function KpiStrip({ k, title = 'Hotel performance', sub }: { k: Kpis; tit
 }
 
 function Forecast({ data, rooms }: { data: Dash['ops']['forecast']; rooms: number }) {
+  if (!rooms) {
+    return (
+      <Card title="Next 14 days" sub="How full the coming fortnight already is">
+        <div className="empty">Add your rooms in Settings and bookings will show up here.</div>
+      </Card>
+    );
+  }
   const peak = data.reduce((a, d) => (d.booked > a.booked ? d : a), data[0]);
   return (
-    <Card title="Next 14 days" sub={`On the books now · busiest: ${fmtDate(peak.date)} (${pct(peak.booked / rooms)})`}>
+    <Card title="Next 14 days" sub={peak.booked ? `On the books now · busiest: ${fmtDate(peak.date)} (${pct(peak.booked / rooms)})` : 'Nothing booked yet for the next two weeks'}>
       <div className="forecast" role="img" aria-label="Rooms booked for each of the next 14 days">
         {data.map((d, i) => (
           <div key={d.date} className={`col${i === 0 ? ' today' : ''}`}>
@@ -122,6 +132,10 @@ export default function Dashboard() {
     ops.rooms.cleaning > 0 && { to: '/staff/front-desk', icon: 'sparkle', text: `${ops.rooms.cleaning} room${ops.rooms.cleaning > 1 ? 's' : ''} waiting for housekeeping`, tone: 'amber' },
     ops.rooms.maintenance > 0 && { to: '/staff/front-desk', icon: 'bolt', text: `${ops.rooms.maintenance} room${ops.rooms.maintenance > 1 ? 's' : ''} out of order`, tone: 'red' },
     !!lowStock?.length && { to: '/staff/inventory', icon: 'box', text: `${lowStock.length} bar item${lowStock.length > 1 ? 's' : ''} running low`, tone: 'amber' },
+    user!.role === 'manager' && (!ops.last_closed || ops.last_closed < addDays(ops.date, -1)) && {
+      to: '/staff/close-day', icon: 'moon', tone: 'blue',
+      text: ops.last_closed ? `Books closed up to ${fmtDate(ops.last_closed)} — close ${fmtDate(addDays(ops.last_closed, 1))}` : 'Close each day at night to count the cash and lock the books',
+    },
   ].filter(Boolean) as { to: string; icon: string; text: string; tone: string }[];
 
   const AttentionCard = (
@@ -217,6 +231,8 @@ export default function Dashboard() {
         </Link>
         <button className="btn primary" onClick={() => desk.newReservation()}><Icon name="plus" size={16} /> New booking</button>
       </PageHead>
+
+      <div style={{ marginBottom: 16 }}><SetupChecklist /></div>
 
       <div className="cards cols-4" style={{ marginBottom: 16 }}>
         <Stat icon="receipt" label="Earned today" value={nairaShort(today.totalRevenue)} foot={`Rooms ${nairaShort(today.revenue[0].amount)} · Bar ${nairaShort(today.revenue[1].amount + today.revenue[2].amount)} · Other ${nairaShort(today.revenue.slice(3).reduce((a, r) => a + r.amount, 0))}`} />

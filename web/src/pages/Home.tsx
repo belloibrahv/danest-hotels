@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { HOTEL } from '../../../shared/constants';
+import { FACILITY_LABELS, type Facility } from '../../../shared/constants';
 import { GymScene, LoungeScene, PoolScene, RoomScene } from '../components/illustrations';
 import { ErrorBox, Field, Icon, useSubmit } from '../components/ui';
 import { addDays, api, fmtDateLong, naira, nightsBetween, todayISO } from '../lib/api';
+import { sceneFor, time12, useHotel, type PublicHotel } from '../lib/hotel';
 
 interface RoomType {
   id: number;
@@ -16,8 +17,8 @@ interface RoomType {
   available: number;
 }
 
-const MAP_EMBED = `https://www.google.com/maps?q=${encodeURIComponent('Beckley Street, Old Bodija, Ibadan')}&z=15&output=embed`;
-const MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('4 Beckley Street, Old Bodija, Ibadan')}`;
+const mapEmbed = (address: string) => `https://www.google.com/maps?q=${encodeURIComponent(address)}&z=15&output=embed`;
+const mapsUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 
 function useReveal() {
   useEffect(() => {
@@ -61,17 +62,21 @@ export function SiteNav() {
 }
 
 export function SiteFooter() {
+  const hotel = useHotel();
   return (
     <footer className="site-footer">
       <div className="wrap">
         <div className="brand">
           <img src="/brand/crest-128.png" alt="" width={44} height={44} />
           <span>
-            <b>{HOTEL.name}</b>
-            <small style={{ color: '#8f8676' }}>{HOTEL.tagline}</small>
+            <b>{hotel?.name ?? 'Danest Hotel & Suites'}</b>
+            <small style={{ color: '#8f8676' }}>{hotel?.tagline}</small>
           </span>
         </div>
-        <span>{HOTEL.address}</span>
+        <span>
+          {hotel?.address}
+          {hotel?.phone && <> · <a href={`tel:${hotel.phone}`}>{hotel.phone}</a></>}
+        </span>
         <span className="row" style={{ gap: 18 }}>
           <Link to="/booking">Manage booking</Link>
           <Link to="/staff/login">Staff sign-in</Link>
@@ -82,11 +87,25 @@ export function SiteFooter() {
 }
 
 const DAY = [
-  { time: '7:00', title: 'Wake to quiet', text: 'Blackout curtains, a cool room and nothing but birdsong from the garden.', scene: <RoomScene variant="deluxe" /> },
-  { time: '8:30', title: 'A morning swim', text: 'The pool is yours before the city wakes. Towels are by the gate.', scene: <PoolScene /> },
-  { time: '12:00', title: 'Work, uninterrupted', text: 'Fast Wi-Fi and power that stays on, so calls and deadlines go to plan.', scene: <GymScene /> },
-  { time: '20:00', title: 'Evenings at the lounge', text: 'Cold drinks, good music, and karaoke every Friday night.', scene: <LoungeScene /> },
+  { time: '7:00', title: 'Wake rested', text: 'A comfortable room on a quiet street in Old Bodija.', scene: <RoomScene variant="deluxe" /> },
+  { time: '8:30', title: 'A morning swim', text: 'Start the day in the pool before the city gets busy.', scene: <PoolScene /> },
+  { time: '17:00', title: 'Work it off', text: 'The gym is downstairs when the meetings are done.', scene: <GymScene /> },
+  { time: '20:00', title: 'Evenings at the lounge', text: 'Cold drinks and good music at the lounge & bar.', scene: <LoungeScene /> },
 ];
+
+const FAC_SCENE: Record<Facility, React.ReactNode> = { pool: <PoolScene />, gym: <GymScene />, lounge: <LoungeScene /> };
+const FAC_TEXT: Record<Facility, string> = {
+  pool: 'A sunny pool for a morning swim or a lazy afternoon.',
+  gym: 'Weights, cardio and space to stretch, a few steps from your room.',
+  lounge: 'Cold drinks, good music and space to unwind — or hire it for your event.',
+};
+
+function priceTag(h: PublicHotel | null, f: Facility) {
+  const items = h?.facility_items.filter((i) => i.facility === f) ?? [];
+  if (!items.length) return 'Open to guests and visitors';
+  const low = Math.min(...items.map((i) => i.price));
+  return items.length === 1 ? `${items[0].name} · ${naira(low)}` : `From ${naira(low)}`;
+}
 
 export default function Home() {
   const t = todayISO();
@@ -96,6 +115,7 @@ export default function Home() {
   const [typeId, setTypeId] = useState<number | ''>('');
   const [types, setTypes] = useState<RoomType[]>([]);
   const [moment, setMoment] = useState(0);
+  const hotel = useHotel();
   useReveal();
 
   const validDates = checkOut > checkIn && checkIn >= t;
@@ -137,7 +157,7 @@ export default function Home() {
                 <h1 className="display">
                   Rest easy in the heart of <em>Bodija.</em>
                 </h1>
-                <p className="lede">Quiet rooms, steady power and a warm Ibadan welcome — with a pool, a gym and a lounge just downstairs. Book direct for our best rate.</p>
+                <p className="lede">Comfortable rooms and a warm Ibadan welcome — with a swimming pool, a gym and a lounge &amp; bar on site. Book directly with us.</p>
                 <div className="row" style={{ gap: 12, marginTop: 28 }}>
                   <a href="#book" className="btn gold lg">Check availability</a>
                   {from > 0 && <span className="muted" style={{ fontSize: 15 }}>Rooms from <b style={{ color: 'var(--ink)' }}>{naira(from)}</b> a night</span>}
@@ -149,7 +169,7 @@ export default function Home() {
                   <img src="/brand/building-1600.png" alt="The Danest Hotel & Suites building: a stone-clad hotel behind a cream wall and black gate, with palm trees." width={1600} height={740} fetchPriority="high" />
                 </picture>
                 <img className="crest" src="/brand/crest-512.png" alt="" width={116} height={116} />
-                <div className="hero-chip c1" aria-hidden="true"><Icon name="bolt" size={14} /> 24-hour power</div>
+                {hotel?.highlights[0] && <div className="hero-chip c1" aria-hidden="true"><Icon name="check" size={14} /> {hotel.highlights[0].title}</div>}
                 <div className="hero-chip c2" aria-hidden="true"><Icon name="wave" size={14} /> Pool, gym &amp; lounge</div>
               </div>
             </div>
@@ -186,15 +206,11 @@ export default function Home() {
               <button className="btn gold lg">See rooms</button>
             </form>
 
+            {!!hotel?.highlights.length && (
             <ul className="promises">
-              {[
-                ['shield', 'Gated & secure', 'Guarded around the clock'],
-                ['bolt', 'Power that stays on', 'Generator backup, day and night'],
-                ['wifi', 'Free Wi-Fi', 'In every room and the lounge'],
-                ['receipt', 'Pay on arrival', 'Cash, transfer or POS — no card to book'],
-              ].map(([icon, title, text]) => (
+              {hotel.highlights.map(({ title, text }) => (
                 <li key={title} className="reveal">
-                  <Icon name={icon} size={20} />
+                  <Icon name="check" size={20} />
                   <span>
                     <b>{title}</b>
                     {text}
@@ -202,6 +218,7 @@ export default function Home() {
                 </li>
               ))}
             </ul>
+            )}
           </div>
         </section>
 
@@ -213,8 +230,7 @@ export default function Home() {
                 <h2 className="display">Four ways to stay, one standard of care.</h2>
               </div>
               <p>
-                Every room has air conditioning, power that stays on, and housekeeping every day.{' '}
-                {validDates && <>Prices for <b>{nights} night{nights > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}.</>}
+                {validDates && types.length > 0 && <>Prices for <b>{nights} night{nights > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}, with live availability.</>}
               </p>
             </div>
             <div className="rooms">
@@ -223,7 +239,7 @@ export default function Home() {
                 return (
                   <article className="room-card reveal" key={r.id} style={{ transitionDelay: `${i * 70}ms` }}>
                     <div className="swatch">
-                      <RoomScene variant={r.slug} title={`Illustration of the ${r.name}`} />
+                      <RoomScene variant={sceneFor(r.name)} title={`Illustration of the ${r.name}`} />
                     </div>
                     <h3>{r.name}</h3>
                     <p className="muted" style={{ fontSize: 14 }}>{r.description}</p>
@@ -250,7 +266,13 @@ export default function Home() {
                   </article>
                 );
               })}
-              {types.length === 0 && Array.from({ length: 4 }, (_, i) => <div key={i} className="room-card skeleton" style={{ height: 520 }} />)}
+              {!hotel && types.length === 0 && Array.from({ length: 4 }, (_, i) => <div key={i} className="room-card skeleton" style={{ height: 520 }} />)}
+              {hotel && !hotel.bookable && (
+                <div className="room-card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40 }}>
+                  <h3>Online booking opens soon</h3>
+                  <p className="muted">{hotel.phone ? <>Call us on <a href={`tel:${hotel.phone}`}>{hotel.phone}</a> to book a room.</> : 'Please visit or call the front desk to book a room.'}</p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -265,11 +287,7 @@ export default function Home() {
               <p>Staying with us or just visiting Bodija for the day — the pool, gym and lounge are open to everyone.</p>
             </div>
             <div className="fac-grid">
-              {[
-                { scene: <PoolScene />, name: 'Swimming pool', text: 'A clean, sunny pool for a morning swim or a lazy afternoon. Weekend pool parties on request.', tag: 'Day passes from ₦3,000' },
-                { scene: <GymScene />, name: 'Gym', text: 'Free weights, cardio machines and space to stretch. Train alone or book a personal trainer.', tag: 'Day pass ₦3,000 · Monthly ₦25,000' },
-                { scene: <LoungeScene />, name: 'Lounge & bar', text: 'Cold drinks, good music and Friday karaoke. Reserve a VIP table, or hire the lounge for your event.', tag: 'Private hire available' },
-              ].map((f, i) => (
+              {(['pool', 'gym', 'lounge'] as Facility[]).map((k) => ({ scene: FAC_SCENE[k], name: FACILITY_LABELS[k], text: FAC_TEXT[k], tag: priceTag(hotel, k) })).map((f, i) => (
                 <article className="fac reveal" key={f.name} style={{ transitionDelay: `${i * 90}ms` }}>
                   <div className="fac-art">{f.scene}</div>
                   <div className="fac-text">
@@ -330,35 +348,41 @@ export default function Home() {
               <dl>
                 <div>
                   <dt>Address</dt>
-                  <dd>
-                    4, Beckley Street, off Adeyi-Estate,
-                    <br />
-                    Old Bodija Road, Ibadan, Oyo State
-                  </dd>
+                  <dd>{hotel?.address}</dd>
                 </div>
-                <div>
-                  <dt>Check-in · Check-out</dt>
-                  <dd>From 2:00 pm · By 12:00 noon</dd>
-                </div>
+                {hotel && (
+                  <div>
+                    <dt>Check-in · Check-out</dt>
+                    <dd>From {time12(hotel.check_in_time)} · By {time12(hotel.check_out_time)}</dd>
+                  </div>
+                )}
+                {hotel?.phone && (
+                  <div>
+                    <dt>Front desk</dt>
+                    <dd><a href={`tel:${hotel.phone}`}>{hotel.phone}</a>{hotel.whatsapp && <> · <a href={`https://wa.me/${hotel.whatsapp.replace(/\D/g, '').replace(/^0/, '234')}`} target="_blank" rel="noopener noreferrer">WhatsApp</a></>}</dd>
+                  </div>
+                )}
               </dl>
-              <a className="btn lg" style={{ marginTop: 28 }} href={MAPS_URL} target="_blank" rel="noopener noreferrer">
-                <Icon name="pin" /> Get directions
-              </a>
+              {hotel && (
+                <a className="btn lg" style={{ marginTop: 28 }} href={mapsUrl(hotel.address)} target="_blank" rel="noopener noreferrer">
+                  <Icon name="pin" /> Get directions
+                </a>
+              )}
             </div>
             <div className="map-card reveal">
-              <iframe title="Map showing Danest Hotel & Suites on Beckley Street, Old Bodija, Ibadan" src={MAP_EMBED} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+              {hotel && <iframe title={`Map showing ${hotel.name}`} src={mapEmbed(hotel.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />}
               <div style={{ padding: '16px 24px 22px', display: 'flex', gap: 12, alignItems: 'center', borderTop: '1px solid var(--line)' }}>
                 <Icon name="pin" size={22} />
                 <div>
-                  <b>Danest Hotel &amp; Suites</b>
-                  <div className="muted" style={{ fontSize: 14 }}>Look for the black gate on Beckley Street</div>
+                  <b>{hotel?.name}</b>
+                  <div className="muted" style={{ fontSize: 14 }}>{hotel?.address}</div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <BookingSection types={types} checkIn={checkIn} checkOut={checkOut} adults={adults} typeId={typeId} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} setTypeId={setTypeId} />
+        {hotel?.bookable !== false && <BookingSection types={types} checkIn={checkIn} checkOut={checkOut} adults={adults} typeId={typeId} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} setTypeId={setTypeId} />}
 
         <section className="section faq" aria-labelledby="faq-title">
           <div className="wrap faq-grid">
@@ -370,14 +394,13 @@ export default function Home() {
               </p>
             </div>
             <div className="reveal">
-              {[
+              {([
                 ['Do I need to pay when I book?', 'No. Send your request and we confirm it by phone. You pay when you arrive — cash, bank transfer or POS.'],
-                ['What do I need at check-in?', "A valid photo ID: NIN slip or card, international passport, driver's licence or voter's card."],
-                ['What time can I check in and out?', 'Check-in is from 2:00 pm and check-out is by 12:00 noon. Ask us about early arrival or late departure.'],
-                ['Can I use the pool or gym without staying?', 'Yes. Day passes are sold at the front desk, and monthly gym memberships are available.'],
-                ['Is there parking?', 'Yes, inside our gated compound.'],
-                ['How do I change or cancel?', 'Call the front desk with your booking reference and we will sort it out with you.'],
-              ].map(([q, a]) => (
+                ['What do I need at check-in?', "Please bring a valid photo ID: NIN slip or card, international passport, driver's licence or voter's card."],
+                hotel && ['What time can I check in and out?', `Check-in is from ${time12(hotel.check_in_time)} and check-out is by ${time12(hotel.check_out_time)}. Ask us about early arrival or late departure.`],
+                hotel?.facility_items.some((i) => i.facility !== 'lounge') && ['Can I use the pool or gym without staying?', 'Yes. Passes are sold at the front desk.'],
+                ['How do I change or cancel?', `Call the front desk${hotel?.phone ? ` on ${hotel.phone}` : ''} with your booking reference and we will sort it out with you.`],
+              ].filter(Boolean) as [string, string][]).map(([q, a]) => (
                 <details key={q} className="faq-item">
                   <summary>{q}</summary>
                   <p>{a}</p>

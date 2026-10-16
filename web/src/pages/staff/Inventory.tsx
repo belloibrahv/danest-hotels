@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
+import { EmptyIllo } from '../../components/illustrations';
+import { Card, EmptyState, ErrorBox, Field, Icon, Loading, Modal, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
 import { api, naira, pct } from '../../lib/api';
 import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
@@ -45,6 +46,11 @@ export default function Inventory() {
       </div>
 
       <Card pad={false}>
+        {data.length === 0 ? (
+          <EmptyState illo={<EmptyIllo kind="glass" />} title="No bar or shop items yet">
+            {isManager ? <>Add each drink and snack with its selling price, then record a <a href="/staff/purchases">purchase</a> to put your opening stock on the shelf.</> : 'Ask the manager to add the items you sell.'}
+          </EmptyState>
+        ) : (
         <div className="table-wrap">
           <table className="t">
             <thead>
@@ -83,6 +89,7 @@ export default function Inventory() {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
 
       {editing && <ProductForm product={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), reload())} />}

@@ -2955,3 +2955,79 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
+
+/* housekeeping — big targets, works one-handed on a phone */
+.hk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.hk-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 190px;
+  box-shadow: var(--shadow);
+}
+.hk-card.cleaning {
+  border-left-color: var(--amber);
+}
+.hk-card.available {
+  border-left-color: var(--green);
+}
+.hk-card.occupied {
+  border-left-color: var(--blue);
+}
+.hk-card.maintenance {
+  border-left-color: var(--red);
+  background: repeating-linear-gradient(135deg, #fff, #fff 8px, #fdf5f4 8px, #fdf5f4 16px);
+}
+.hk-no {
+  font-family: var(--serif);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1;
+}
+.hk-card .btn.gold {
+  height: 48px;
+  font-size: 15px;
+}
+@media (max-width: 560px) {
+  .hk-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* phones: stats sit two-up and compact so the work is above the fold */
+@media (max-width: 560px) {
+  .cards.cols-4 {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat {
+    padding: 12px 14px;
+  }
+  .stat .value {
+    font-size: 24px;
+  }
+  .stat .foot {
+    font-size: 12px;
+  }
+  .page-head h1 {
+    font-size: 28px;
+  }
+}
+.ticket {
+  display: grid;
+  gap: 6px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.ticket:last-child {
+  border-bottom: 0;
+}

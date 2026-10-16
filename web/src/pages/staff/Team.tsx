@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ROLES, ROLE_LABELS, type Role } from '../../../../shared/constants';
+import { ROLES, ROLE_HELP, ROLE_LABELS, type Role } from '../../../../shared/constants';
 import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/ui';
 import { api, fmtDateTime, naira } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -97,7 +97,8 @@ function TeamList() {
       )}
       <div className="card-body muted" style={{ fontSize: 13.5, borderTop: '1px solid var(--line)' }}>
         <b style={{ color: 'var(--ink)' }}>Managers</b> see everything. <b style={{ color: 'var(--ink)' }}>Front desk</b> handles rooms, guests and gym/pool/lounge takings but never sees profit or costs.{' '}
-        <b style={{ color: 'var(--ink)' }}>Bar &amp; shop</b> uses the till and sees stock levels, not cost prices.
+        <b style={{ color: 'var(--ink)' }}>Bar &amp; shop</b> uses the till and sees stock levels, not cost prices.{' '}
+        <b style={{ color: 'var(--ink)' }}>Housekeeping</b> sees the rooms to clean and reports repairs, from a phone.
       </div>
       {adding && <UserForm onClose={() => setAdding(false)} onSaved={() => (setAdding(false), reload())} />}
       {resetting && <ResetForm u={resetting} onClose={() => setResetting(null)} />}
@@ -120,7 +121,7 @@ function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   return (
     <Modal title="Add a staff member" onClose={onClose}>
       <form className="stack" onSubmit={onSubmit}>
-        <Field label="Full name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} /></Field>
+        <Field label="Full name" hint="Their real name — it appears on everything they do in the activity log"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required minLength={3} maxLength={80} /></Field>
         <div className="grid-2">
           <Field label="Username" hint="Letters, numbers, dots"><input className="input" autoCapitalize="none" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase() })} required pattern="[a-z0-9._\-]{3,32}" /></Field>
           <Field label="Role">
@@ -129,6 +130,7 @@ function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
             </select>
           </Field>
         </div>
+        <p className="muted" style={{ fontSize: 13, marginTop: -6 }}>{ROLE_HELP[f.role]}</p>
         <Field label="Temporary password" hint="At least 10 characters. Ask them to change it after signing in."><input className="input" type="text" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required minLength={10} /></Field>
         <ErrorBox error={error} />
         <div className="row" style={{ justifyContent: 'flex-end' }}>

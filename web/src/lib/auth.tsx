@@ -59,4 +59,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export const can = (user: User | null | undefined, ...roles: Role[]) => !!user && roles.includes(user.role);
-export const homeFor = (role: Role) => (role === 'bar' ? '/staff/pos' : '/staff');
+export const homeFor = (role: Role) => (role === 'bar' ? '/staff/pos' : role === 'housekeeping' ? '/staff/housekeeping' : '/staff');

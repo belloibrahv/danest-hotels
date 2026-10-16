@@ -28,7 +28,23 @@ One system that runs the hotel the way the owner described it:
 
 ---
 
-## Run it
+## Going live for a real hotel
+
+The live system **starts empty**: no sample bookings, no sample sales, and no invented staff. Every number on every report is the hotel's real business.
+
+1. Deploy, setting `DANEST_SECRET` and `DANEST_SETUP_CODE` (both long random strings).
+2. Open `/setup`, enter the setup code, and create the **owner's account with their real name**. Setup then closes permanently.
+3. Follow the checklist on the dashboard:
+   - hotel details (phone, address, check-in times, bank details for invoices)
+   - room types and rates
+   - room numbers (`101-108` adds a floor at once)
+   - bar and shop items, then a purchase for the opening stock
+   - gym, pool and lounge prices
+   - staff accounts, each with their real name and role
+   - two-step sign-in for every manager
+4. Each night, the manager uses **Close the day**: clear no-shows and late departures, count the cash drawer, and lock the day.
+
+## Run it locally
 
 Requires **Node.js 22.18 or newer** (it uses Node's built-in SQLite and runs TypeScript directly, so there is no database server and no compile step for the API).
 
@@ -37,10 +53,10 @@ npm install
 npm run dev          # API on :4000 + web on http://localhost:5173
 ```
 
-The first start loads ~4 months of realistic demo trading that ends today. To reset it:
+A fresh local database also starts empty and prints a one-time setup code in the terminal. To explore with sample data instead, load the **demo data**. This is for development only. It invents four months of trading and fictional staff, and it refuses to run when `NODE_ENV=production`.
 
 ```bash
-npm run seed
+npm run seed:demo    # wipes the local database, then signs you in as manager / frontdesk / bar / housekeeping (password Danest@2026!)
 ```
 
 Production-style (one process serves the API and the built site on :4000):
@@ -49,27 +65,29 @@ Production-style (one process serves the API and the built site on :4000):
 npm run build && npm start
 ```
 
-Other scripts: `npm test` (27 end-to-end API tests against an in-memory database) and `npm run typecheck`.
+Other scripts: `npm test` (38 end-to-end API tests, including a complete real-hotel run that starts from an empty database) and `npm run typecheck`.
 
 Environment variables:
 
 | Variable | Purpose |
 |---|---|
 | `DANEST_DB` | Path to the SQLite file (default `data/danest.db`; on Railway `/data/danest.db` on a volume) |
+| `DANEST_SETUP_CODE` | One-time code for creating the owner account at `/setup`. If it isn't set, a code is generated at boot and printed to the server log |
 | `DANEST_SECRET` | Key for encrypting two-factor secrets and recovery-code hashes. **Set this in production** and keep it out of the database volume. Without it, a key file is generated next to the database |
 | `VITE_SHOW_DEMO_LOGINS=1` | At build time, shows one-click demo accounts on the sign-in page |
 
 Schema changes are versioned migrations in `server/db.ts` (`PRAGMA user_version`). They run automatically on start and are safe on existing data.
 
-### Demo accounts
+### Demo accounts (local demo data only)
 
-Password for all: `Danest@2026!`. The sign-in page shows one-click buttons for these in dev builds.
+Password for all: `Danest@2026!`. In dev builds, the sign-in page has one-click buttons for them. These accounts never exist in production.
 
 | Username | Role | Sees |
 |---|---|---|
 | `manager` | Manager / owner | Everything, including costs and profit |
 | `frontdesk` | Front desk | Rooms, reservations, guest payments, gym/pool/lounge takings. No profit or cost figures |
 | `bar` | Bar & shop | Till and stock levels. No cost prices |
+| `housekeeping` | Housekeeping | Rooms to clean and repair reports, on a phone |
 
 ---
 
@@ -136,10 +154,15 @@ Built against OWASP ASVS / Top 10:2025 and verified by `npm test`:
 
 Room types, rates and the 20-room layout; facility prices; the drinks list; 24-hour power, Wi-Fi and parking claims; check-in and check-out times. Then add the front-desk phone number and real photography or video of the rooms, pool and lounge (the illustrations are designed to sit beside real photos).
 
-## Roadmap — Phase 2
+## Workflows added in Phase 2
 
-- Housekeeping app for phones: room assignments, inspections, maintenance tickets.
-- Night audit: close the day, count the till cash against the system, record the variance.
+- **Housekeeping** (`/staff/housekeeping`): checked-out rooms appear as "to clean". A supervisor assigns them, and housekeepers mark them clean on their phones.
+- **Repairs**: anyone can report a problem in a room or around the hotel. A repair can take a room out of order, and that room drops out of availability straight away. When it's fixed, the room goes back to housekeeping and any cost is booked as a repairs expense.
+- **Close the day** (`/staff/close-day`): a review of no-shows, guests past their departure date, unpaid bills and dirty rooms. The manager then counts the cash against what the system expects, and any difference must be explained. A closed day is **locked**: no payment, sale, purchase or expense can be dated on or before it. Days close in order, and reopening the latest one needs a reason that's logged.
+- **Settings**: hotel details, room types and rates, rooms, and the facility price list. The website, booking engine, invoices and front desk all read from these settings.
+
+## Roadmap — Phase 3
+
 - Rate plans: seasons, weekend rates, corporate accounts with monthly invoicing.
 - Paystack deposits on the website; SMS/WhatsApp confirmations and pre-arrival messages.
 - Supplier accounts and purchase orders; payroll detail; budget versus actual.

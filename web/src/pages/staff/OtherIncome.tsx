@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
 import { DateRange, useRange } from '../../components/DateRange';
 import { Card, Empty, ErrorBox, Field, Icon, Loading, PageHead, Stat, useSubmit, useToast } from '../../components/ui';
@@ -11,24 +11,6 @@ interface Data {
   totals: { facility: Facility; total: number; count: number }[];
 }
 
-/** Common items per facility, so the desk taps instead of typing. Amounts stay editable. */
-const QUICK: Record<Facility, { item: string; amount: number }[]> = {
-  gym: [
-    { item: 'Gym day pass', amount: 3000 },
-    { item: 'Gym monthly membership', amount: 25000 },
-    { item: 'Personal training (4 sessions)', amount: 40000 },
-  ],
-  pool: [
-    { item: 'Pool day pass — adult', amount: 5000 },
-    { item: 'Pool day pass — child', amount: 3000 },
-    { item: 'Pool party booking', amount: 120000 },
-  ],
-  lounge: [
-    { item: 'VIP table reservation', amount: 20000 },
-    { item: 'Friday karaoke night — cover', amount: 2000 },
-    { item: 'Lounge hire — private event', amount: 200000 },
-  ],
-};
 const ICON: Record<Facility, string> = { gym: 'dumbbell', pool: 'wave', lounge: 'music' };
 
 export default function OtherIncome() {
@@ -36,7 +18,14 @@ export default function OtherIncome() {
   const range = useRange('today');
   const { data, error, reload } = useApi<Data>(`/facility-income?${range.qs}`);
   const [facility, setFacility] = useState<Facility>('gym');
-  const [f, setF] = useState({ item: QUICK.gym[0].item, amount: String(QUICK.gym[0].amount), customer: '', method: 'transfer' as ChargeMethod, date: '' });
+  // One-tap prices come from the owner's price list in Settings.
+  const priceList = useApi<{ id: number; facility: Facility; name: string; price: number }[]>('/settings/facility-items');
+  const quick = (x: Facility) => (priceList.data ?? []).filter((i) => i.facility === x).map((i) => ({ item: i.name, amount: i.price }));
+  const [f, setF] = useState({ item: '', amount: '', customer: '', method: 'transfer' as ChargeMethod, date: '' });
+  useEffect(() => {
+    const first = (priceList.data ?? []).find((i) => i.facility === facility);
+    if (first && !f.item) setF((x) => ({ ...x, item: first.name, amount: String(first.price) }));
+  }, [priceList.data]);
   const [guest, setGuest] = useState<number | ''>('');
   const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(f.method === 'room' ? '/inhouse' : null);
   const { busy, error: saveErr, submit } = useSubmit();
@@ -44,7 +33,8 @@ export default function OtherIncome() {
 
   const pickFacility = (x: Facility) => {
     setFacility(x);
-    setF({ ...f, item: QUICK[x][0].item, amount: String(QUICK[x][0].amount) });
+    const first = quick(x)[0];
+    setF({ ...f, item: first?.item ?? '', amount: first ? String(first.amount) : '' });
   };
 
   const onSubmit = (e: FormEvent) => {
@@ -108,7 +98,12 @@ export default function OtherIncome() {
               ))}
             </div>
             <div className="row" style={{ gap: 6 }}>
-              {QUICK[facility].map((q) => (
+              {quick(facility).length === 0 && (
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {can(user, 'manager') ? <>No prices set for the {FACILITY_LABELS[facility].toLowerCase()}. <a href="/staff/settings?tab=facilities">Add them in Settings</a>.</> : 'No price list yet — type the item and amount.'}
+                </span>
+              )}
+              {quick(facility).map((q) => (
                 <button type="button" key={q.item} className="btn sm" aria-pressed={f.item === q.item} style={f.item === q.item ? { borderColor: 'var(--gold)', background: 'var(--gold-soft)' } : undefined} onClick={() => setF({ ...f, item: q.item, amount: String(q.amount) })}>
                   {q.item.replace(/^(Gym|Pool) /, '')}
                 </button>

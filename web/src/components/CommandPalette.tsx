@@ -46,7 +46,7 @@ export function CommandPalette({ nav, role, open, setOpen }: { nav: PaletteNav[]
 
   useEffect(() => {
     const term = q.trim();
-    if (term.length < 2 || role === 'bar') return setResults(null);
+    if (term.length < 2 || role === 'bar' || role === 'housekeeping') return setResults(null);
     let live = true;
     const t = setTimeout(() => api<Results>(`/search?q=${encodeURIComponent(term)}`).then((r) => live && setResults(r)).catch(() => {}), 140);
     return () => {
@@ -78,11 +78,11 @@ export function CommandPalette({ nav, role, open, setOpen }: { nav: PaletteNav[]
       }
     }
     const actions: Item[] = [];
-    if (role !== 'bar') {
+    if (role === 'manager' || role === 'frontdesk') {
       actions.push({ key: 'a-new', group: 'Actions', icon: 'plus', label: 'New reservation', hint: 'N', run: () => (close(), desk.newReservation()) });
       actions.push({ key: 'a-walk', group: 'Actions', icon: 'bed', label: 'Walk-in guest', run: () => (close(), desk.newReservation({ walkIn: true })) });
     }
-    if (role !== 'frontdesk') actions.push({ key: 'a-till', group: 'Actions', icon: 'glass', label: 'Open the till', run: () => (close(), navigate('/staff/pos')) });
+    if (role === 'manager' || role === 'bar') actions.push({ key: 'a-till', group: 'Actions', icon: 'glass', label: 'Open the till', run: () => (close(), navigate('/staff/pos')) });
     for (const a of actions) if (!term || a.label.toLowerCase().includes(term)) out.push(a);
     for (const n of nav) {
       if (!n.roles.includes(role)) continue;
@@ -113,7 +113,7 @@ export function CommandPalette({ nav, role, open, setOpen }: { nav: PaletteNav[]
           <Icon name="search" className="muted" />
           <input
             autoFocus
-            placeholder={role === 'bar' ? 'Jump to…' : 'Search guests, bookings, rooms — or jump to a page'}
+            placeholder={role === 'bar' || role === 'housekeeping' ? 'Jump to…' : 'Search guests, bookings, rooms — or jump to a page'}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             role="combobox"
