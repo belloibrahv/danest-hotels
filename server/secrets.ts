@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
@@ -35,4 +35,9 @@ export function decrypt(sealed: string): string {
   const d = createDecipheriv('aes-256-gcm', KEY, Buffer.from(iv, 'base64'));
   d.setAuthTag(Buffer.from(tag, 'base64'));
   return Buffer.concat([d.update(Buffer.from(data, 'base64')), d.final()]).toString('utf8');
+}
+
+/** Keyed hash for short secrets (recovery codes): useless to an attacker who only has the database. */
+export function keyedHash(value: string): string {
+  return createHmac('sha256', KEY).update(value).digest('hex');
 }

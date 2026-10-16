@@ -31,6 +31,17 @@ const paths: Record<string, ReactNode> = {
   wifi: <path d="M2 9a15 15 0 0 1 20 0M5 13a10 10 0 0 1 14 0M8.5 16.5a5 5 0 0 1 7 0M12 20h.01" />,
   car: <><path d="M5 16V11l2-5h10l2 5v5M3 16h18v3H3zM5 11h14" /><circle cx="7.5" cy="16" r="1.5" /><circle cx="16.5" cy="16" r="1.5" /></>,
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 3" /></>,
+  grid: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 4v16" /><rect x="10" y="11" width="8" height="3" rx="1" fill="currentColor" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+  star: <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" />,
+  lock: <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
+  print: <><path d="M6 9V3h12v6M6 18H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-2" /><rect x="6" y="14" width="12" height="7" /></>,
+  swap: <path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />,
+  moon: <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />,
+  device: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
+  phoneDevice: <><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M11 18h2" /></>,
+  palette: <><circle cx="12" cy="12" r="9" /><circle cx="8" cy="10" r="1.3" fill="currentColor" /><circle cx="12" cy="7.5" r="1.3" fill="currentColor" /><circle cx="16" cy="10" r="1.3" fill="currentColor" /><path d="M12 21a2.5 2.5 0 0 1 0-5h1.5" /></>,
+  link: <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />,
   arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
 };
 
@@ -91,7 +102,7 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 export function Loading() {
-  return <div className="empty">Loading…</div>;
+  return <SkeletonRows rows={4} />;
 }
 
 export function ErrorBox({ error }: { error: string | null | undefined }) {
@@ -206,4 +217,62 @@ export function useSubmit() {
     }
   }, [busy]);
   return { busy, error, setError, submit };
+}
+
+// ---------- drawer: a side sheet for records you work on (reservations, guests) ----------
+
+export function Drawer({ title, sub, onClose, children, actions }: { title: ReactNode; sub?: ReactNode; onClose: () => void; children: ReactNode; actions?: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.querySelector('.modal-back')) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      prev?.focus?.();
+    };
+  }, [onClose]);
+  return (
+    <>
+      <div className="drawer-back" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} tabIndex={-1} ref={ref}>
+        <div className="drawer-head">
+          <div style={{ minWidth: 0 }}>
+            <h2>{title}</h2>
+            {sub && <div className="muted" style={{ marginTop: 4, fontSize: 14 }}>{sub}</div>}
+          </div>
+          <div className="row" style={{ marginLeft: 'auto', flexWrap: 'nowrap' }}>
+            {actions}
+            <button className="btn ghost sm" onClick={onClose} aria-label="Close">
+              <Icon name="x" />
+            </button>
+          </div>
+        </div>
+        {children}
+      </aside>
+    </>
+  );
+}
+
+export function EmptyState({ illo, title, children }: { illo: ReactNode; title: string; children?: ReactNode }) {
+  return (
+    <div className="empty">
+      {illo}
+      <b style={{ color: 'var(--ink)', display: 'block', marginBottom: 4 }}>{title}</b>
+      {children}
+    </div>
+  );
+}
+
+export function SkeletonRows({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="stack" style={{ padding: 20, gap: 12 }} aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton" style={{ height: 18, width: `${90 - ((i * 13) % 35)}%` }} />
+      ))}
+    </div>
+  );
 }

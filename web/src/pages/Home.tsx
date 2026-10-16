@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { HOTEL } from '../../../shared/constants';
+import { GymScene, LoungeScene, PoolScene, RoomScene } from '../components/illustrations';
 import { ErrorBox, Field, Icon, useSubmit } from '../components/ui';
 import { addDays, api, fmtDateLong, naira, nightsBetween, todayISO } from '../lib/api';
 
@@ -15,24 +16,77 @@ interface RoomType {
   available: number;
 }
 
-const SWATCH: Record<string, string> = {
-  standard: 'linear-gradient(135deg, #f4ead3, #e9d6ad)',
-  deluxe: 'linear-gradient(135deg, #efe2c4, #d9b874)',
-  executive: 'linear-gradient(135deg, #3a332a, #17140f)',
-  royal: 'linear-gradient(135deg, #b8862b, #6f4c0e)',
-};
-
 const MAP_EMBED = `https://www.google.com/maps?q=${encodeURIComponent('Beckley Street, Old Bodija, Ibadan')}&z=15&output=embed`;
 const MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('4 Beckley Street, Old Bodija, Ibadan')}`;
 
 function useReveal() {
   useEffect(() => {
-    const els = document.querySelectorAll('.reveal');
-    const io = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { rootMargin: '0px 0px -10% 0px' });
+    const els = document.querySelectorAll('.reveal:not(.in)');
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { rootMargin: '0px 0px -8% 0px' });
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, []);
+  });
 }
+
+export function SiteNav() {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const on = () => setScrolled(window.scrollY > 8);
+    on();
+    window.addEventListener('scroll', on, { passive: true });
+    return () => window.removeEventListener('scroll', on);
+  }, []);
+  return (
+    <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
+      <div className="wrap">
+        <Link to="/" className="brand" aria-label="Danest Hotel & Suites — home">
+          <img src="/brand/crest-128.png" alt="" width={44} height={44} />
+          <span>
+            <b>Danest</b>
+            <small>Hotel &amp; Suites</small>
+          </span>
+        </Link>
+        <nav aria-label="Main">
+          <a href="/#rooms">Rooms</a>
+          <a href="/#facilities">Pool, gym &amp; lounge</a>
+          <a href="/#visit">Find us</a>
+          <Link to="/booking">Manage booking</Link>
+        </nav>
+        <a href="/#book" className="btn primary">
+          Book a room
+        </a>
+      </div>
+    </header>
+  );
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <div className="wrap">
+        <div className="brand">
+          <img src="/brand/crest-128.png" alt="" width={44} height={44} />
+          <span>
+            <b>{HOTEL.name}</b>
+            <small style={{ color: '#8f8676' }}>{HOTEL.tagline}</small>
+          </span>
+        </div>
+        <span>{HOTEL.address}</span>
+        <span className="row" style={{ gap: 18 }}>
+          <Link to="/booking">Manage booking</Link>
+          <Link to="/staff/login">Staff sign-in</Link>
+        </span>
+      </div>
+    </footer>
+  );
+}
+
+const DAY = [
+  { time: '7:00', title: 'Wake to quiet', text: 'Blackout curtains, a cool room and nothing but birdsong from the garden.', scene: <RoomScene variant="deluxe" /> },
+  { time: '8:30', title: 'A morning swim', text: 'The pool is yours before the city wakes. Towels are by the gate.', scene: <PoolScene /> },
+  { time: '12:00', title: 'Work, uninterrupted', text: 'Fast Wi-Fi and power that stays on, so calls and deadlines go to plan.', scene: <GymScene /> },
+  { time: '20:00', title: 'Evenings at the lounge', text: 'Cold drinks, good music, and karaoke every Friday night.', scene: <LoungeScene /> },
+];
 
 export default function Home() {
   const t = todayISO();
@@ -41,7 +95,7 @@ export default function Home() {
   const [adults, setAdults] = useState(1);
   const [typeId, setTypeId] = useState<number | ''>('');
   const [types, setTypes] = useState<RoomType[]>([]);
-  const [scrolled, setScrolled] = useState(false);
+  const [moment, setMoment] = useState(0);
   useReveal();
 
   const validDates = checkOut > checkIn && checkIn >= t;
@@ -50,67 +104,53 @@ export default function Home() {
     api<RoomType[]>(`/public/room-types?check_in=${checkIn}&check_out=${checkOut}`).then(setTypes).catch(() => {});
   }, [checkIn, checkOut, validDates]);
 
+  // The "day at Danest" story advances on its own, and pauses when someone picks a moment.
+  const [paused, setPaused] = useState(false);
   useEffect(() => {
-    const on = () => setScrolled(window.scrollY > 8);
-    window.addEventListener('scroll', on, { passive: true });
-    return () => window.removeEventListener('scroll', on);
-  }, []);
+    if (paused || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const id = setInterval(() => setMoment((m) => (m + 1) % DAY.length), 5200);
+    return () => clearInterval(id);
+  }, [paused]);
 
   const choose = (id: number) => {
     setTypeId(id);
     document.getElementById('book')?.scrollIntoView({ behavior: 'smooth' });
   };
-
   const setIn = (v: string) => {
     setCheckIn(v);
     if (checkOut <= v) setCheckOut(addDays(v, 1));
   };
+  const nights = nightsBetween(checkIn, checkOut);
+  const from = types.length ? Math.min(...types.map((r) => r.rate)) : 0;
 
   return (
     <div className="site">
-      <header className={`site-nav${scrolled ? ' scrolled' : ''}`}>
-        <div className="wrap">
-          <a href="#top" className="brand" aria-label="Danest Hotel & Suites — home">
-            <img src="/brand/crest-128.png" alt="" width={44} height={44} />
-            <span>
-              <b>Danest</b>
-              <small>Hotel &amp; Suites</small>
-            </span>
-          </a>
-          <nav aria-label="Main">
-            <a href="#rooms">Rooms</a>
-            <a href="#facilities">Pool, gym &amp; lounge</a>
-            <a href="#visit">Find us</a>
-          </nav>
-          <a href="#book" className="btn primary">
-            Book a room
-          </a>
-        </div>
-      </header>
+      <SiteNav />
 
       <main id="top">
         <section className="hero">
+          <div className="hero-glow" aria-hidden="true" />
           <div className="wrap">
             <div className="hero-grid">
-              <div>
+              <div className="hero-copy">
                 <span className="eyebrow">Old Bodija · Ibadan</span>
                 <h1 className="display">
                   Rest easy in the heart of <em>Bodija.</em>
                 </h1>
                 <p className="lede">Quiet rooms, steady power and a warm Ibadan welcome — with a pool, a gym and a lounge just downstairs. Book direct for our best rate.</p>
-                <div className="trust">
-                  <span><Icon name="bolt" />24-hour power</span>
-                  <span><Icon name="shield" />Gated &amp; secure</span>
-                  <span><Icon name="wifi" />Free Wi-Fi</span>
-                  <span><Icon name="car" />On-site parking</span>
+                <div className="row" style={{ gap: 12, marginTop: 28 }}>
+                  <a href="#book" className="btn gold lg">Check availability</a>
+                  {from > 0 && <span className="muted" style={{ fontSize: 15 }}>Rooms from <b style={{ color: 'var(--ink)' }}>{naira(from)}</b> a night</span>}
                 </div>
               </div>
               <div className="hero-art">
                 <picture>
-                  <source srcSet="/brand/building-900.jpg" media="(max-width: 900px)" />
-                  <img src="/brand/building-1600.jpg" alt="The Danest Hotel & Suites building: a stone-clad two-storey hotel behind a cream wall and black gate, with palm trees." width={1600} height={870} fetchPriority="high" />
+                  <source type="image/webp" srcSet="/brand/building-900.webp 900w, /brand/building-1600.webp 1600w" sizes="(max-width: 900px) 100vw, 55vw" />
+                  <img src="/brand/building-1600.png" alt="The Danest Hotel & Suites building: a stone-clad hotel behind a cream wall and black gate, with palm trees." width={1600} height={740} fetchPriority="high" />
                 </picture>
                 <img className="crest" src="/brand/crest-512.png" alt="" width={116} height={116} />
+                <div className="hero-chip c1" aria-hidden="true"><Icon name="bolt" size={14} /> 24-hour power</div>
+                <div className="hero-chip c2" aria-hidden="true"><Icon name="wave" size={14} /> Pool, gym &amp; lounge</div>
               </div>
             </div>
 
@@ -143,8 +183,25 @@ export default function Home() {
                   ))}
                 </select>
               </Field>
-              <button className="btn gold lg">Check availability</button>
+              <button className="btn gold lg">See rooms</button>
             </form>
+
+            <ul className="promises">
+              {[
+                ['shield', 'Gated & secure', 'Guarded around the clock'],
+                ['bolt', 'Power that stays on', 'Generator backup, day and night'],
+                ['wifi', 'Free Wi-Fi', 'In every room and the lounge'],
+                ['receipt', 'Pay on arrival', 'Cash, transfer or POS — no card to book'],
+              ].map(([icon, title, text]) => (
+                <li key={title} className="reveal">
+                  <Icon name={icon} size={20} />
+                  <span>
+                    <b>{title}</b>
+                    {text}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
@@ -157,7 +214,7 @@ export default function Home() {
               </div>
               <p>
                 Every room has air conditioning, power that stays on, and housekeeping every day.{' '}
-                {validDates && <>Showing prices for <b>{nightsBetween(checkIn, checkOut)} night{nightsBetween(checkIn, checkOut) > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}.</>}
+                {validDates && <>Prices for <b>{nights} night{nights > 1 ? 's' : ''}</b> from {fmtDateLong(checkIn)}.</>}
               </p>
             </div>
             <div className="rooms">
@@ -165,18 +222,19 @@ export default function Home() {
                 const tooSmall = adults > r.capacity;
                 return (
                   <article className="room-card reveal" key={r.id} style={{ transitionDelay: `${i * 70}ms` }}>
-                    <div className="swatch" style={{ background: SWATCH[r.slug] }}>
-                      <Icon name="bed" className={r.slug === 'executive' || r.slug === 'royal' ? 'light' : ''} />
+                    <div className="swatch">
+                      <RoomScene variant={r.slug} title={`Illustration of the ${r.name}`} />
                     </div>
-                    <div className="row">
-                      <h3>{r.name}</h3>
-                    </div>
+                    <h3>{r.name}</h3>
                     <p className="muted" style={{ fontSize: 14 }}>{r.description}</p>
                     <ul>
                       {r.amenities.slice(0, 4).map((a) => <li key={a}>{a}</li>)}
                       <li>Sleeps {r.capacity}</li>
                     </ul>
-                    <div className="price"><b>{naira(r.rate)}</b> / night</div>
+                    <div className="price">
+                      <b>{naira(r.rate)}</b> / night
+                      {nights > 1 && <div className="muted" style={{ fontSize: 13 }}>{naira(r.rate * nights)} for {nights} nights</div>}
+                    </div>
                     <div>
                       {r.available === 0 ? (
                         <span className="badge red">Fully booked for these dates</span>
@@ -192,6 +250,7 @@ export default function Home() {
                   </article>
                 );
               })}
+              {types.length === 0 && Array.from({ length: 4 }, (_, i) => <div key={i} className="room-card skeleton" style={{ height: 520 }} />)}
             </div>
           </div>
         </section>
@@ -207,22 +266,61 @@ export default function Home() {
             </div>
             <div className="fac-grid">
               {[
-                { icon: 'wave', name: 'Swimming pool', text: 'A clean, sunny pool for a morning swim or a lazy afternoon. Weekend pool parties on request.', tag: 'Day passes from ₦3,000' },
-                { icon: 'dumbbell', name: 'Gym', text: 'Free weights, cardio machines and space to stretch. Train alone or book a personal trainer.', tag: 'Day pass ₦3,000 · Monthly ₦25,000' },
-                { icon: 'music', name: 'Lounge & bar', text: 'Cold drinks, good music and Friday karaoke. Reserve a VIP table, or hire the lounge for your event.', tag: 'Private hire available' },
+                { scene: <PoolScene />, name: 'Swimming pool', text: 'A clean, sunny pool for a morning swim or a lazy afternoon. Weekend pool parties on request.', tag: 'Day passes from ₦3,000' },
+                { scene: <GymScene />, name: 'Gym', text: 'Free weights, cardio machines and space to stretch. Train alone or book a personal trainer.', tag: 'Day pass ₦3,000 · Monthly ₦25,000' },
+                { scene: <LoungeScene />, name: 'Lounge & bar', text: 'Cold drinks, good music and Friday karaoke. Reserve a VIP table, or hire the lounge for your event.', tag: 'Private hire available' },
               ].map((f, i) => (
                 <article className="fac reveal" key={f.name} style={{ transitionDelay: `${i * 90}ms` }}>
-                  <Icon name={f.icon} />
-                  <h3>{f.name}</h3>
-                  <p>{f.text}</p>
-                  <span className="tag">{f.tag}</span>
+                  <div className="fac-art">{f.scene}</div>
+                  <div className="fac-text">
+                    <h3>{f.name}</h3>
+                    <p>{f.text}</p>
+                    <span className="tag">{f.tag}</span>
+                  </div>
                 </article>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="section" id="visit">
+        <section className="section day" aria-labelledby="day-title">
+          <div className="wrap">
+            <div className="section-head reveal">
+              <div>
+                <span className="eyebrow">A day at Danest</span>
+                <h2 className="display" id="day-title">From first light to last song.</h2>
+              </div>
+              <p>Everything you need for a good stay is inside our gate. Here's how a day can go.</p>
+            </div>
+            <div className="day-grid reveal">
+              <div className="day-stage" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+                {DAY.map((d, i) => (
+                  <div key={d.time} className={`day-scene${i === moment ? ' on' : ''}`} aria-hidden={i !== moment}>
+                    {d.scene}
+                  </div>
+                ))}
+                <div className="day-progress" key={`${moment}-${paused}`}>
+                  <i className={paused ? 'paused' : ''} />
+                </div>
+              </div>
+              <ol className="day-steps">
+                {DAY.map((d, i) => (
+                  <li key={d.time}>
+                    <button aria-current={i === moment} onClick={() => (setMoment(i), setPaused(true))}>
+                      <span className="time">{d.time}</span>
+                      <span>
+                        <b>{d.title}</b>
+                        <span className="muted">{d.text}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section className="section" id="visit" style={{ paddingTop: 40 }}>
           <div className="wrap visit">
             <div className="reveal">
               <span className="eyebrow">Find us</span>
@@ -248,12 +346,7 @@ export default function Home() {
               </a>
             </div>
             <div className="map-card reveal">
-              <iframe
-                title="Map showing Danest Hotel & Suites on Beckley Street, Old Bodija, Ibadan"
-                src={MAP_EMBED}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+              <iframe title="Map showing Danest Hotel & Suites on Beckley Street, Old Bodija, Ibadan" src={MAP_EMBED} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
               <div style={{ padding: '16px 24px 22px', display: 'flex', gap: 12, alignItems: 'center', borderTop: '1px solid var(--line)' }}>
                 <Icon name="pin" size={22} />
                 <div>
@@ -265,32 +358,37 @@ export default function Home() {
           </div>
         </section>
 
-        <BookingSection
-          types={types}
-          checkIn={checkIn}
-          checkOut={checkOut}
-          adults={adults}
-          typeId={typeId}
-          setCheckIn={setIn}
-          setCheckOut={setCheckOut}
-          setAdults={setAdults}
-          setTypeId={setTypeId}
-        />
+        <BookingSection types={types} checkIn={checkIn} checkOut={checkOut} adults={adults} typeId={typeId} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} setTypeId={setTypeId} />
+
+        <section className="section faq" aria-labelledby="faq-title">
+          <div className="wrap faq-grid">
+            <div className="reveal">
+              <span className="eyebrow">Good to know</span>
+              <h2 className="display" id="faq-title" style={{ fontSize: 'clamp(30px, 3.6vw, 44px)', marginTop: 12 }}>Questions guests ask us.</h2>
+              <p className="muted" style={{ marginTop: 12 }}>
+                Already booked? <Link to="/booking">Check your booking</Link> with your reference and phone number.
+              </p>
+            </div>
+            <div className="reveal">
+              {[
+                ['Do I need to pay when I book?', 'No. Send your request and we confirm it by phone. You pay when you arrive — cash, bank transfer or POS.'],
+                ['What do I need at check-in?', "A valid photo ID: NIN slip or card, international passport, driver's licence or voter's card."],
+                ['What time can I check in and out?', 'Check-in is from 2:00 pm and check-out is by 12:00 noon. Ask us about early arrival or late departure.'],
+                ['Can I use the pool or gym without staying?', 'Yes. Day passes are sold at the front desk, and monthly gym memberships are available.'],
+                ['Is there parking?', 'Yes, inside our gated compound.'],
+                ['How do I change or cancel?', 'Call the front desk with your booking reference and we will sort it out with you.'],
+              ].map(([q, a]) => (
+                <details key={q} className="faq-item">
+                  <summary>{q}</summary>
+                  <p>{a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
       </main>
 
-      <footer className="site-footer">
-        <div className="wrap">
-          <div className="brand">
-            <img src="/brand/crest-128.png" alt="" width={44} height={44} />
-            <span>
-              <b>{HOTEL.name}</b>
-              <small style={{ color: '#8f8676' }}>{HOTEL.tagline}</small>
-            </span>
-          </div>
-          <span>{HOTEL.address}</span>
-          <Link to="/staff/login">Staff sign-in</Link>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
@@ -333,8 +431,13 @@ function BookingSection(p: {
             Your room, held in two minutes.
           </h2>
           <p className="muted" style={{ fontSize: 17, maxWidth: '40ch' }}>
-            No card and no payment needed now. Send your request, our front desk calls you to confirm, and you pay when you arrive — cash, transfer or POS.
+            No card and no payment needed now. Send your request, our front desk calls you to confirm, and you pay when you arrive.
           </p>
+          <ol className="steps">
+            <li><span><b>Send your request</b> — takes two minutes.</span></li>
+            <li><span><b>We call to confirm</b> — and answer any questions.</span></li>
+            <li><span><b>Arrive and settle in</b> — pay by cash, transfer or POS.</span></li>
+          </ol>
           {type && (
             <div className="card" style={{ marginTop: 28, padding: '8px 20px' }}>
               <div className="summary-line"><span>{type.name}</span><span>{naira(type.rate)} / night</span></div>
@@ -347,7 +450,7 @@ function BookingSection(p: {
         <div className="book-form reveal">
           {done ? (
             <div className="success" role="status">
-              <Icon name="check" size={40} />
+              <div className="success-mark"><Icon name="check" size={34} /></div>
               <h3 className="display" style={{ fontSize: 28, marginTop: 8 }}>Request received</h3>
               <div className="code">{done.code}</div>
               <p className="muted">
@@ -355,9 +458,12 @@ function BookingSection(p: {
                 <br />
                 Keep this reference. We'll call <b>{form.phone}</b> shortly to confirm your stay.
               </p>
-              <button className="btn" style={{ marginTop: 20 }} onClick={() => (setDone(null), setForm({ name: '', phone: '', email: '', notes: '', company: '' }))}>
-                Make another booking
-              </button>
+              <div className="row" style={{ justifyContent: 'center', marginTop: 20 }}>
+                <Link className="btn" to={`/booking?code=${done.code}`}>Check its status</Link>
+                <button className="btn ghost" onClick={() => (setDone(null), setForm({ name: '', phone: '', email: '', notes: '', company: '' }))}>
+                  Make another booking
+                </button>
+              </div>
             </div>
           ) : (
             <form className="stack" onSubmit={onSubmit}>

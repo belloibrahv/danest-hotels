@@ -1,9 +1,18 @@
 import { Link } from 'react-router-dom';
-import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
+import { useDesk } from '../../components/Desk';
 import { DailyBars, HBars } from '../../components/charts';
+import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
 import { fmtDate, fmtDateLong, naira, nairaShort, pct } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
+
+export interface Kpis {
+  roomNightsSold: number;
+  roomNightsAvailable: number;
+  occupancy: number;
+  adr: number;
+  revpar: number;
+}
 
 export interface PnL {
   from: string;
@@ -16,6 +25,8 @@ export interface PnL {
   operating: { key: string; label: string; amount: number }[];
   totalOperating: number;
   netProfit: number;
+  kpis: Kpis;
+  collections: { byMethod: Record<string, number>; bySource: Record<string, number>; total: number };
   stockPurchases: number;
   stockValue: number;
 }
@@ -29,10 +40,13 @@ interface Dash {
     departures: number;
     requests: number;
     balances: { n: number; v: number };
+    forecast: { date: string; booked: number; requested: number }[];
+    arrivalsList: { id: number; guest_name: string; vip: number; room_type: string; room_number: string | null; status: string; nights: number }[];
   };
   today?: PnL;
   month?: PnL;
-  last30?: { date: string; rooms: number; bar: number; facilities: number; expenses: number }[];
+  collectedToday?: PnL['collections'];
+  last30?: { date: string; rooms: number; bar: number; facilities: number; expenses: number; occupied: number }[];
   lowStock?: { id: number; name: string; stock: number; reorder_level: number; unit: string }[];
 }
 
@@ -40,20 +54,71 @@ const greeting = () => {
   const h = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Africa/Lagos' }).format(new Date()));
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 };
+const wd = new Intl.DateTimeFormat('en-GB', { weekday: 'narrow', timeZone: 'UTC' });
+
+export function KpiStrip({ k, title = 'Hotel performance', sub }: { k: Kpis; title?: string; sub?: string }) {
+  return (
+    <Card title={title} sub={sub} pad={false}>
+      <div className="kpi-row">
+        <div>
+          <small>Occupancy <span className="info" title="Room-nights sold ÷ room-nights available">?</span></small>
+          <b>{pct(k.occupancy)}</b>
+          <p>{k.roomNightsSold} of {k.roomNightsAvailable} room-nights</p>
+        </div>
+        <div>
+          <small>ADR <span className="info" title="Average daily rate: room revenue ÷ room-nights sold. What a sold room earns per night.">?</span></small>
+          <b>{naira(k.adr)}</b>
+          <p>average paid per occupied room</p>
+        </div>
+        <div>
+          <small>RevPAR <span className="info" title="Revenue per available room: room revenue ÷ all room-nights. Combines price and occupancy in one number.">?</span></small>
+          <b>{naira(k.revpar)}</b>
+          <p>earned per room, full or empty</p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Forecast({ data, rooms }: { data: Dash['ops']['forecast']; rooms: number }) {
+  const peak = data.reduce((a, d) => (d.booked > a.booked ? d : a), data[0]);
+  return (
+    <Card title="Next 14 days" sub={`On the books now · busiest: ${fmtDate(peak.date)} (${pct(peak.booked / rooms)})`}>
+      <div className="forecast" role="img" aria-label="Rooms booked for each of the next 14 days">
+        {data.map((d, i) => (
+          <div key={d.date} className={`col${i === 0 ? ' today' : ''}`}>
+            <span className="tip">
+              {fmtDateLong(d.date)}: {d.booked} booked{d.requested ? ` + ${d.requested} requested` : ''} of {rooms}
+            </span>
+            <div className="stack">
+              <i style={{ height: `${(d.booked / rooms) * 100}%` }} />
+              {d.requested > 0 && <i className="req" style={{ height: `${(d.requested / rooms) * 100}%` }} />}
+            </div>
+            <small>{i === 0 ? 'Today' : wd.format(new Date(`${d.date}T00:00:00Z`))}</small>
+          </div>
+        ))}
+      </div>
+      <div className="legend" style={{ marginTop: 12 }}>
+        <span><i style={{ background: 'var(--gold)' }} /> Confirmed & in house</span>
+        <span><i style={{ background: 'repeating-linear-gradient(135deg, #e8cf95, #e8cf95 3px, #f4ead3 3px, #f4ead3 6px)' }} /> Website requests</span>
+      </div>
+    </Card>
+  );
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data, error } = useApi<Dash>('/dashboard');
+  const desk = useDesk();
+  const { data, error } = useApi<Dash>(`/dashboard?v=${desk.version}`);
   if (error) return <ErrorBox error={error} />;
   if (!data) return <Loading />;
-  const { ops, month, today, last30, lowStock } = data;
+  const { ops, month, today, last30, lowStock, collectedToday } = data;
   const firstName = user!.name.replace(/^(Mrs?|Ms|Dr)\.?\s+/, '').split(' ')[0];
 
   const attention = [
     ops.requests > 0 && { to: '/staff/reservations?status=pending', icon: 'calendar', text: `${ops.requests} website booking request${ops.requests > 1 ? 's' : ''} to confirm`, tone: 'gold' },
-    ops.arrivals > 0 && { to: '/staff/reservations?view=arrivals', icon: 'bed', text: `${ops.arrivals} arrival${ops.arrivals > 1 ? 's' : ''} expected today`, tone: 'blue' },
     ops.departures > 0 && { to: '/staff/reservations?view=departures', icon: 'logout', text: `${ops.departures} guest${ops.departures > 1 ? 's' : ''} due to check out`, tone: 'blue' },
-    ops.balances.n > 0 && { to: '/staff/reservations?view=inhouse', icon: 'receipt', text: `${ops.balances.n} in-house guest${ops.balances.n > 1 ? 's' : ''} owe ${naira(ops.balances.v)}`, tone: 'red' },
+    ops.balances.n > 0 && { to: '/staff/reservations?view=balances', icon: 'receipt', text: `${ops.balances.n} in-house guest${ops.balances.n > 1 ? 's' : ''} owe ${naira(ops.balances.v)}`, tone: 'red' },
     ops.rooms.cleaning > 0 && { to: '/staff/front-desk', icon: 'sparkle', text: `${ops.rooms.cleaning} room${ops.rooms.cleaning > 1 ? 's' : ''} waiting for housekeeping`, tone: 'amber' },
     ops.rooms.maintenance > 0 && { to: '/staff/front-desk', icon: 'bolt', text: `${ops.rooms.maintenance} room${ops.rooms.maintenance > 1 ? 's' : ''} out of order`, tone: 'red' },
     !!lowStock?.length && { to: '/staff/inventory', icon: 'box', text: `${lowStock.length} bar item${lowStock.length > 1 ? 's' : ''} running low`, tone: 'amber' },
@@ -82,21 +147,49 @@ export default function Dashboard() {
     </Card>
   );
 
+  const ArrivalsCard = (
+    <Card title="Arriving today" sub={ops.arrivalsList.length ? `${ops.arrivalsList.length} expected` : 'No arrivals expected'} pad={false} action={<Link className="btn sm" to="/staff/calendar">Tape chart</Link>}>
+      {ops.arrivalsList.length === 0 ? (
+        <div className="empty">No one is due in today.</div>
+      ) : (
+        <table className="t">
+          <tbody>
+            {ops.arrivalsList.map((a) => (
+              <tr key={a.id} className="click" onClick={() => desk.openReservation(a.id)}>
+                <td>
+                  <span className="strong">{a.guest_name}</span> {!!a.vip && <span className="vip">★ VIP</span>}
+                  <div className="muted" style={{ fontSize: 12.5 }}>{a.room_type} · {a.nights} night{a.nights > 1 ? 's' : ''}</div>
+                </td>
+                <td className="r">{a.room_number ? <b>Room {a.room_number}</b> : <span className="badge amber">Assign room</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+
   const occupancyStat = (
     <Stat icon="bed" label="Occupancy tonight" value={pct(ops.occupancy)} foot={`${ops.rooms.occupied} of ${ops.rooms.sellable} rooms · ${ops.rooms.available} ready to sell`} />
   );
 
-  if (!month || !today || !last30) {
+  if (!month || !today || !last30 || !collectedToday) {
     return (
       <>
-        <PageHead title={`${greeting()}, ${firstName}`} sub={fmtDateLong(ops.date)} />
+        <PageHead title={`${greeting()}, ${firstName}`} sub={fmtDateLong(ops.date)}>
+          <button className="btn primary" onClick={() => desk.newReservation({ walkIn: true })}><Icon name="plus" size={16} /> Walk-in</button>
+        </PageHead>
         <div className="cards cols-4" style={{ marginBottom: 16 }}>
           {occupancyStat}
           <Stat icon="calendar" label="Arrivals today" value={ops.arrivals} />
           <Stat icon="logout" label="Departures today" value={ops.departures} />
           <Stat icon="sparkle" label="Website requests" value={ops.requests} />
         </div>
-        <div className="cards cols-2">{AttentionCard}</div>
+        <div className="cards cols-2" style={{ marginBottom: 16 }}>
+          {ArrivalsCard}
+          {AttentionCard}
+        </div>
+        <Forecast data={ops.forecast} rooms={ops.rooms.total} />
       </>
     );
   }
@@ -120,24 +213,30 @@ export default function Dashboard() {
     <>
       <PageHead title={`${greeting()}, ${firstName}`} sub={`${fmtDateLong(ops.date)} · here's how Danest is doing`}>
         <Link to="/staff/reports" className="btn">
-          <Icon name="chart" size={16} /> Full profit &amp; loss
+          <Icon name="chart" size={16} /> Profit &amp; loss
         </Link>
+        <button className="btn primary" onClick={() => desk.newReservation()}><Icon name="plus" size={16} /> New booking</button>
       </PageHead>
 
       <div className="cards cols-4" style={{ marginBottom: 16 }}>
-        <Stat icon="receipt" label="Taken today" value={nairaShort(today.totalRevenue)} foot={`Rooms ${nairaShort(today.revenue[0].amount)} · Bar ${nairaShort(today.revenue[1].amount + today.revenue[2].amount)}`} />
-        <Stat icon="chart" label="Revenue this month" value={nairaShort(month.totalRevenue)} foot={`${fmtDate(month.from)} – ${fmtDate(month.to)}`} />
+        <Stat icon="receipt" label="Earned today" value={nairaShort(today.totalRevenue)} foot={`Rooms ${nairaShort(today.revenue[0].amount)} · Bar ${nairaShort(today.revenue[1].amount + today.revenue[2].amount)} · Other ${nairaShort(today.revenue.slice(3).reduce((a, r) => a + r.amount, 0))}`} />
+        <Stat icon="bolt" label="Cash collected today" value={nairaShort(collectedToday.total)} foot={`Cash ${nairaShort(collectedToday.byMethod.cash ?? 0)} · Transfer ${nairaShort(collectedToday.byMethod.transfer ?? 0)} · POS ${nairaShort(collectedToday.byMethod.pos ?? 0)}`} />
         <Stat
           icon="sparkle"
           label="Profit this month"
           value={<span style={{ color: month.netProfit < 0 ? 'var(--red)' : undefined }}>{nairaShort(month.netProfit)}</span>}
-          foot={<>{pct(margin)} of revenue kept after all costs</>}
+          foot={<>{pct(margin)} of {nairaShort(month.totalRevenue)} revenue kept</>}
         />
         {occupancyStat}
       </div>
 
+      <div className="cards cols-2" style={{ marginBottom: 16 }}>
+        <KpiStrip k={month.kpis} title="This month's performance" sub={`${fmtDate(month.from)} – ${fmtDate(month.to)} · the numbers investors ask for`} />
+        <Forecast data={ops.forecast} rooms={ops.rooms.total} />
+      </div>
+
       <div className="cards cols-main" style={{ marginBottom: 16 }}>
-        <Card title="Money in, last 30 days" sub={`Rooms, bar and facilities · daily average ${naira(avg)}`}>
+        <Card title="Earned each day, last 30 days" sub={`Rooms, bar and facilities · daily average ${naira(avg)}`}>
           <DailyBars
             label="Daily revenue over the last 30 days"
             data={series}
@@ -145,7 +244,7 @@ export default function Dashboard() {
               const x = series.find((s) => s.date === d.date)!;
               return (
                 <>
-                  {fmtDateLong(d.date)}
+                  {fmtDateLong(d.date)} · {x.occupied} rooms
                   <br />
                   <b>{naira(d.value)}</b>
                   <br />
@@ -170,29 +269,10 @@ export default function Dashboard() {
       </div>
 
       <div className="cards cols-3">
+        {ArrivalsCard}
         {AttentionCard}
-        <Card title="Where this month's money went" sub={`${naira(month.totalCostOfSales + month.totalOperating)} in costs`}>
+        <Card title="Where this month's money went" sub={`${naira(month.totalCostOfSales + month.totalOperating)} in costs`} action={lowStock?.length ? <Link className="btn sm" to="/staff/purchases">Restock</Link> : undefined}>
           <HBars tone="ink" rows={costs} />
-        </Card>
-        <Card title="Running low at the bar" sub="At or below reorder level" action={<Link className="btn sm" to="/staff/purchases">Restock</Link>} pad={false}>
-          {lowStock?.length ? (
-            <table className="t">
-              <tbody>
-                {lowStock.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td className="r">
-                      <span className={`badge ${p.stock === 0 ? 'red' : 'amber'}`}>
-                        {p.stock === 0 ? 'Out' : `${p.stock} left`}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="empty">Everything is well stocked.</div>
-          )}
         </Card>
       </div>
     </>

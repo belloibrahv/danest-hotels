@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { PAYMENT_LABELS, PAYMENT_METHODS, type PaymentMethod } from '../../../../shared/constants';
-import { Card, Empty, ErrorBox, Loading, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
+import { CHARGE_LABELS, CHARGE_METHODS, type ChargeMethod } from '../../../../shared/constants';
+import { EmptyIllo } from '../../components/illustrations';
+import { Card, EmptyState, ErrorBox, Field, Loading, PageHead, Stat, Tabs, useSubmit, useToast } from '../../components/ui';
 import { api, fmtTime, naira } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
 
@@ -17,8 +18,8 @@ export interface Product {
 }
 
 interface TillDay {
-  summary: { count: number; total: number; cash: number; transfer: number; pos: number };
-  sales: { id: number; receipt_no: string; created_at: string; method: PaymentMethod; total: number; staff: string; items: { name: string; qty: number }[] }[];
+  summary: { count: number; total: number; cash: number; transfer: number; pos: number; room: number };
+  sales: { id: number; receipt_no: string; created_at: string; method: ChargeMethod; total: number; staff: string; room_number: string | null; items: { name: string; qty: number }[] }[];
 }
 
 export default function Pos() {
@@ -27,7 +28,9 @@ export default function Pos() {
   const [cat, setCat] = useState<'all' | 'drinks' | 'confectionery'>('all');
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<Map<number, number>>(new Map());
-  const [method, setMethod] = useState<PaymentMethod>('cash');
+  const [method, setMethod] = useState<ChargeMethod>('cash');
+  const [guest, setGuest] = useState<number | ''>('');
+  const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(method === 'room' ? '/inhouse' : null);
   const { busy, error, setError, submit } = useSubmit();
   const toast = useToast();
 
@@ -52,9 +55,13 @@ export default function Pos() {
 
   const charge = () =>
     submit(async () => {
-      const r = await api<{ receipt_no: string; total: number }>('/sales', { body: { method, items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty })) } });
-      toast(`${naira(r.total)} received · ${r.receipt_no}`);
+      const r = await api<{ receipt_no: string; total: number }>('/sales', {
+        body: { method, reservation_id: method === 'room' ? guest : undefined, items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty })) },
+      });
+      const room = inhouse.data?.find((g) => g.reservation_id === guest)?.room_number;
+      toast(method === 'room' ? `${naira(r.total)} added to room ${room}'s bill` : `${naira(r.total)} received · ${r.receipt_no}`);
       setCart(new Map());
+      setGuest('');
       products.reload();
       till.reload();
     });
@@ -121,15 +128,27 @@ export default function Pos() {
               <b className="num display">{naira(total)}</b>
             </div>
             <div className="pay-methods" role="group" aria-label="Payment method">
-              {PAYMENT_METHODS.map((m) => (
+              {CHARGE_METHODS.map((m) => (
                 <button key={m} aria-pressed={method === m} onClick={() => setMethod(m)}>
-                  {PAYMENT_LABELS[m]}
+                  {m === 'room' ? 'Room bill' : CHARGE_LABELS[m]}
                 </button>
               ))}
             </div>
+            {method === 'room' && (
+              <Field label="Which guest?" hint="Only guests checked in right now are listed">
+                <select className="input" value={guest} onChange={(e) => setGuest(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">Choose a room…</option>
+                  {inhouse.data?.map((g) => (
+                    <option key={g.reservation_id} value={g.reservation_id}>
+                      Room {g.room_number} — {g.guest_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <ErrorBox error={error} />
-            <button className="btn gold lg block" disabled={busy || lines.length === 0} onClick={charge}>
-              {busy ? 'Saving…' : `Charge ${naira(total)}`}
+            <button className="btn gold lg block" disabled={busy || lines.length === 0 || (method === 'room' && !guest)} onClick={charge}>
+              {busy ? 'Saving…' : method === 'room' ? `Add ${naira(total)} to room bill` : `Charge ${naira(total)}`}
             </button>
           </div>
         </div>
@@ -141,14 +160,14 @@ export default function Pos() {
           <Stat label="Total sold" value={naira(till.data.summary.total)} foot={`${till.data.summary.count} sales`} />
           <Stat label="Cash in drawer" value={naira(till.data.summary.cash)} />
           <Stat label="Transfers" value={naira(till.data.summary.transfer)} />
-          <Stat label="POS / card" value={naira(till.data.summary.pos)} />
+          <Stat label="POS / card" value={naira(till.data.summary.pos)} foot={till.data.summary.room ? `+ ${naira(till.data.summary.room)} on room bills` : undefined} />
         </div>
       )}
       <Card pad={false} title="Recent sales">
         {!till.data ? (
           <Loading />
         ) : till.data.sales.length === 0 ? (
-          <Empty>No sales yet today.</Empty>
+          <EmptyState illo={<EmptyIllo kind="glass" />} title="No sales yet today">The first order of the day will show up here.</EmptyState>
         ) : (
           <div className="table-wrap">
             <table className="t">
@@ -161,7 +180,7 @@ export default function Pos() {
                     <td className="num">{fmtTime(s.created_at)}</td>
                     <td className="muted">{s.receipt_no}</td>
                     <td>{s.items.map((i) => `${i.qty}× ${i.name}`).join(', ')}</td>
-                    <td>{PAYMENT_LABELS[s.method]}</td>
+                    <td>{s.method === 'room' ? <span className="badge gold plain">Room {s.room_number}</span> : CHARGE_LABELS[s.method]}</td>
                     <td className="r strong">{naira(s.total)}</td>
                   </tr>
                 ))}

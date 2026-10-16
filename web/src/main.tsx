@@ -8,6 +8,8 @@ import './styles.css';
 
 // The guest site loads instantly; the back-office is split into its own bundle.
 const Staff = lazy(() => import('./pages/staff/StaffApp'));
+const ManageBooking = lazy(() => import('./pages/ManageBooking'));
+const Brand = lazy(() => import('./pages/Brand'));
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -17,6 +19,8 @@ createRoot(document.getElementById('root')!).render(
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/booking" element={<ManageBooking />} />
+              <Route path="/brand" element={<Brand />} />
               <Route path="/staff/*" element={<Staff />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

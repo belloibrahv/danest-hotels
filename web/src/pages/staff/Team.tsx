@@ -1,17 +1,19 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ROLES, ROLE_LABELS, type Role } from '../../../../shared/constants';
 import { Card, ErrorBox, Field, Icon, Loading, Modal, PageHead, Tabs, useSubmit, useToast } from '../../components/ui';
 import { api, fmtDateTime, naira } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
 
-interface U { id: number; name: string; username: string; role: Role; active: number; created_at: string }
+interface U { id: number; name: string; username: string; role: Role; active: number; totp_enabled: number; last_login_at: string | null; created_at: string }
 interface A { id: number; action: string; entity: string; entity_id: number | null; detail: string | null; created_at: string; user: string | null }
 
 const ACTION_TEXT: Record<string, string> = {
   login: 'signed in', login_failed: 'failed sign-in', create: 'created', update: 'updated', delete: 'deleted', confirm: 'confirmed', cancel: 'cancelled',
   check_in: 'checked in', check_out: 'checked out', check_out_with_balance: 'checked out WITH BALANCE OWED', payment: 'took a payment on', room_status: 'changed status of',
   stock_adjust: 'adjusted stock of', rate_change: 'changed rate of', booking_request: 'website booking request', password_change: 'changed password', seed: 'loaded demo data',
+  mfa_enabled: 'turned on two-step sign-in', mfa_disabled: 'turned OFF two-step sign-in', mfa_failed: 'entered a wrong sign-in code', login_recovery_code: 'signed in with a recovery code',
+  sessions_revoked: 'signed out other devices', session_revoked: 'signed out a device', room_charge: 'charged to room', change_dates: 'changed dates of', room_move: 'moved room for',
 };
 
 function describe(a: A) {
@@ -48,6 +50,13 @@ function TeamList() {
   const [resetting, setResetting] = useState<U | null>(null);
   const toast = useToast();
 
+  const resetMfa = async (u: U) => {
+    await api(`/users/${u.id}`, { method: 'PATCH', body: { reset_2fa: true } }).then(
+      () => (toast(`Two-step sign-in reset for ${u.name}`), reload()),
+      (e) => toast(e.message),
+    );
+  };
+
   const toggle = async (u: U) => {
     await api(`/users/${u.id}`, { method: 'PATCH', body: { active: !u.active } }).then(
       () => (toast(u.active ? `${u.name} can no longer sign in` : `${u.name} can sign in again`), reload()),
@@ -61,16 +70,23 @@ function TeamList() {
       {!data ? <Loading /> : (
         <div className="table-wrap">
           <table className="t">
-            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Two-step</th><th>Last sign-in</th><th>Status</th><th /></tr></thead>
             <tbody>
               {data.map((u) => (
                 <tr key={u.id}>
                   <td className="strong">{u.name}{u.id === user!.id && <span className="muted"> (you)</span>}</td>
                   <td className="muted">{u.username}</td>
                   <td>{ROLE_LABELS[u.role]}</td>
+                  <td>{u.totp_enabled ? <span className="badge green"><Icon name="shield" size={12} /> On</span> : <span className={`badge ${u.role === 'manager' ? 'amber' : ''}`}>Off</span>}</td>
+                  <td className="muted num">{u.last_login_at ? fmtDateTime(u.last_login_at.replace('T', ' ').replace(/\.\d+Z$/, '')) : 'Never'}</td>
                   <td>{u.active ? <span className="badge green">Active</span> : <span className="badge">Disabled</span>}</td>
                   <td className="r" style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn ghost sm" onClick={() => setResetting(u)}>Reset password</button>
+                    {!!u.totp_enabled && u.id !== user!.id && (
+                      <button className="btn ghost sm" onClick={() => confirm(`Turn off two-step sign-in for ${u.name}? Do this only if they lost their phone — they should set it up again.`) && resetMfa(u)}>
+                        Reset 2-step
+                      </button>
+                    )}
                     {u.id !== user!.id && <button className="btn ghost sm danger" onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
                   </td>
                 </tr>
@@ -143,11 +159,22 @@ function ResetForm({ u, onClose }: { u: U; onClose: () => void }) {
 }
 
 function Activity() {
-  const { data, error } = useApi<A[]>('/audit');
+  const [q, setQ] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(q.trim()), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const { data, error } = useApi<A[]>(`/audit?q=${encodeURIComponent(query)}`);
   if (error) return <ErrorBox error={error} />;
   if (!data) return <Loading />;
   return (
-    <Card pad={false} title="Latest 200 actions" sub="Sign-ins, money movements, stock corrections and deletions">
+    <Card
+      pad={false}
+      title="Activity log"
+      sub="Sign-ins, money movements, stock corrections and deletions — the latest 300"
+      action={<input className="input" style={{ width: 220, height: 34 }} placeholder="Filter: payment, login, Grace…" value={q} onChange={(e) => setQ(e.target.value)} />}
+    >
       <div className="table-wrap">
         <table className="t">
           <thead><tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr></thead>
@@ -157,7 +184,7 @@ function Activity() {
                 <td className="num muted" style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(a.created_at)}</td>
                 <td>{a.user ?? <span className="muted">{a.action === 'booking_request' ? 'Guest website' : 'Unknown'}</span>}</td>
                 <td>
-                  <span style={a.action.includes('balance') || a.action === 'login_failed' || a.action === 'delete' ? { color: 'var(--red)', fontWeight: 700 } : undefined}>
+                  <span style={/balance|failed|delete|disabled/.test(a.action) ? { color: 'var(--red)', fontWeight: 700 } : undefined}>
                     {ACTION_TEXT[a.action] ?? a.action}
                   </span>{' '}
                   <span className="muted">{a.entity.replace('_', ' ')}{a.entity_id ? ` #${a.entity_id}` : ''}</span>

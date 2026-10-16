@@ -3,7 +3,7 @@ import type { RoomStatus } from '../../../../shared/constants';
 import { Card, ErrorBox, Icon, Loading, Modal, PageHead, useSubmit, useToast } from '../../components/ui';
 import { api, fmtDate } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
-import { NewReservation, ReservationDetail } from './Reservations';
+import { useDesk } from '../../components/Desk';
 
 interface Room {
   id: number;
@@ -16,6 +16,7 @@ interface Room {
   reservation_id: number | null;
   check_out: string | null;
   guest_name: string | null;
+  guest_vip: number | null;
   arriving_today: number;
 }
 
@@ -23,10 +24,9 @@ const LABEL: Record<RoomStatus, string> = { available: 'Ready', occupied: 'Occup
 const TONE: Record<RoomStatus, string> = { available: 'green', occupied: 'blue', cleaning: 'amber', maintenance: 'red' };
 
 export default function FrontDesk() {
-  const { data, error, reload } = useApi<Room[]>('/rooms');
+  const desk = useDesk();
+  const { data, error, reload } = useApi<Room[]>(`/rooms?v=${desk.version}`);
   const [sel, setSel] = useState<Room | null>(null);
-  const [resId, setResId] = useState<number | null>(null);
-  const [walkIn, setWalkIn] = useState<Room | null>(null);
   const { busy, error: actErr, submit } = useSubmit();
   const toast = useToast();
 
@@ -41,6 +41,7 @@ export default function FrontDesk() {
       toast(msg);
       setSel(null);
       reload();
+      desk.changed();
     });
 
   return (
@@ -64,12 +65,12 @@ export default function FrontDesk() {
               {data
                 .filter((r) => r.floor === f)
                 .map((r) => (
-                  <button key={r.id} className={`room-tile ${r.status}`} onClick={() => (r.reservation_id ? setResId(r.reservation_id) : setSel(r))}>
+                  <button key={r.id} className={`room-tile ${r.status}`} onClick={() => (r.reservation_id ? desk.openReservation(r.reservation_id) : setSel(r))}>
                     <span className="no">{r.number}</span>
                     <span className="type">{r.room_type}</span>
                     {r.status === 'occupied' ? (
                       <>
-                        <span className="guest">{r.guest_name}</span>
+                        <span className="guest">{r.guest_vip ? '★ ' : ''}{r.guest_name}</span>
                         <span className="muted" style={{ fontSize: 12 }}>Leaves {fmtDate(r.check_out!)}</span>
                       </>
                     ) : (
@@ -92,7 +93,7 @@ export default function FrontDesk() {
             <ErrorBox error={actErr} />
             {sel.status === 'available' && (
               <>
-                <button className="btn gold lg block" onClick={() => (setWalkIn(sel), setSel(null))}>
+                <button className="btn gold lg block" onClick={() => (desk.newReservation({ roomId: sel.id, typeId: sel.room_type_id, walkIn: true }), setSel(null))}>
                   <Icon name="plus" size={16} /> Walk-in guest — check in to {sel.number}
                 </button>
                 <button className="btn block" disabled={busy} onClick={() => setStatus(sel, 'cleaning', `Room ${sel.number} sent to housekeeping`)}>Needs cleaning</button>
@@ -112,8 +113,6 @@ export default function FrontDesk() {
           </div>
         </Modal>
       )}
-      {resId && <ReservationDetail id={resId} onClose={() => setResId(null)} onChange={reload} />}
-      {walkIn && <NewReservation preset={{ roomId: walkIn.id, typeId: walkIn.room_type_id }} onClose={() => setWalkIn(null)} onCreated={(id) => (setWalkIn(null), reload(), setResId(id))} />}
     </>
   );
 }

@@ -3,11 +3,12 @@ import { DateRange, useRange } from '../../components/DateRange';
 import { Card, ErrorBox, Icon, Loading, PageHead, Stat } from '../../components/ui';
 import { fmtDate, fmtDateLong, naira, nairaShort, pct } from '../../lib/api';
 import { useApi } from '../../lib/hooks';
-import type { PnL } from './Dashboard';
+import { KpiStrip, type Kpis, type PnL } from './Dashboard';
 
 interface Report extends PnL {
-  previous: { from: string; to: string; totalRevenue: number; netProfit: number };
-  daily: { date: string; rooms: number; bar: number; facilities: number; expenses: number }[];
+  previous: { from: string; to: string; totalRevenue: number; netProfit: number; kpis: Kpis };
+  daily: { date: string; rooms: number; bar: number; facilities: number; expenses: number; occupied: number }[];
+  rooms: number;
 }
 
 function Delta({ now, before }: { now: number; before: number }) {
@@ -48,6 +49,14 @@ export default function Reports() {
               label="Net profit"
               value={<span style={{ color: p.netProfit < 0 ? 'var(--red)' : 'var(--green)' }}>{nairaShort(p.netProfit)}</span>}
               foot={<Delta now={p.netProfit} before={p.previous.netProfit} />}
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <KpiStrip
+              k={p.kpis}
+              title="Room performance"
+              sub={`Before: occupancy ${pct(p.previous.kpis.occupancy)} · ADR ${naira(p.previous.kpis.adr)} · RevPAR ${naira(p.previous.kpis.revpar)} (${fmtDate(p.previous.from)} – ${fmtDate(p.previous.to)})`}
             />
           </div>
 
@@ -92,16 +101,34 @@ export default function Reports() {
                         <>
                           {fmtDate(d.date)} · <b>{naira(d.value)}</b>
                           <br />
-                          Spent that day: {naira(x.expenses)}
+                          {x.occupied} of {p.rooms} rooms · spent {naira(x.expenses)}
                         </>
                       );
                     }}
                   />
                 </Card>
               )}
+              <Card title="Money actually collected" sub="Cash in hand and in the bank — room-bill charges count once the guest pays">
+                <div className="stack" style={{ gap: 10 }}>
+                  {(['cash', 'transfer', 'pos'] as const).map((m) => (
+                    <div key={m} className="row" style={{ justifyContent: 'space-between' }}>
+                      <span>{{ cash: 'Cash', transfer: 'Bank transfer', pos: 'POS / card' }[m]}</span>
+                      <b className="num">{naira(p.collections.byMethod[m] ?? 0)}</b>
+                    </div>
+                  ))}
+                  <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                    <b>Total collected</b>
+                    <b className="num">{naira(p.collections.total)}</b>
+                  </div>
+                  <div className="muted" style={{ fontSize: 13 }}>
+                    {Object.entries(p.collections.bySource).map(([k, v]) => `${k} ${nairaShort(v)}`).join(' · ')}
+                  </div>
+                </div>
+              </Card>
               <Card title="How to read this">
                 <div className="stack muted" style={{ fontSize: 14, gap: 10 }}>
-                  <p><b style={{ color: 'var(--ink)' }}>Rooms</b> count money actually received in the period — deposits, part-payments and balances.</p>
+                  <p><b style={{ color: 'var(--ink)' }}>Rooms</b> are earned night by night, the way a night audit posts them: each night a guest sleeps here earns that stay's rate, whenever they pay.</p>
+                  <p><b style={{ color: 'var(--ink)' }}>Collected</b> is the cash side: what actually arrived by cash, transfer or POS in the period.</p>
                   <p><b style={{ color: 'var(--ink)' }}>Drinks &amp; confectionery</b> are charged at what each item cost when it was sold, so a big restock doesn't make one month look bad.</p>
                   <p><b style={{ color: 'var(--ink)' }}>Room supplies &amp; laundry</b> sit in cost of sales because they rise and fall with how many rooms you sell. Salaries, diesel, NEPA and repairs are running costs.</p>
                 </div>

@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { Role } from '../shared/constants.ts';
 import { get, run } from './db.ts';
 import { HttpError } from './lib.ts';
+import { keyedHash } from './secrets.ts';
 
 export interface SessionUser {
   id: number;
@@ -78,7 +79,7 @@ export function useMfaChallenge(token: string): number | null {
 
 export const finishMfaChallenge = (token: string) => run('DELETE FROM mfa_challenges WHERE id = ?', sha256(token));
 
-export const hashCode = (code: string) => sha256(`recovery:${code.toUpperCase().replace(/[^A-Z0-9]/g, '')}`);
+export const hashCode = (code: string) => keyedHash(`recovery:${code.toUpperCase().replace(/[^A-Z0-9]/g, '')}`);
 
 export const passwordProblem = (pw: string) =>
   pw.length < 10 ? 'Password must be at least 10 characters' : pw.length > 128 ? 'Password is too long' : null;

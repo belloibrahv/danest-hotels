@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { FACILITIES, FACILITY_LABELS, PAYMENT_LABELS, PAYMENT_METHODS, type Facility, type PaymentMethod } from '../../../../shared/constants';
+import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
 import { DateRange, useRange } from '../../components/DateRange';
 import { Card, Empty, ErrorBox, Field, Icon, Loading, PageHead, Stat, useSubmit, useToast } from '../../components/ui';
 import { api, fmtDate, naira } from '../../lib/api';
@@ -7,7 +7,7 @@ import { can, useAuth } from '../../lib/auth';
 import { useApi } from '../../lib/hooks';
 
 interface Data {
-  rows: { id: number; facility: Facility; item: string; customer: string | null; amount: number; method: PaymentMethod; date: string; recorded_by: string }[];
+  rows: { id: number; facility: Facility; item: string; customer: string | null; amount: number; method: ChargeMethod; date: string; recorded_by: string; room_number: string | null }[];
   totals: { facility: Facility; total: number; count: number }[];
 }
 
@@ -36,7 +36,9 @@ export default function OtherIncome() {
   const range = useRange('today');
   const { data, error, reload } = useApi<Data>(`/facility-income?${range.qs}`);
   const [facility, setFacility] = useState<Facility>('gym');
-  const [f, setF] = useState({ item: QUICK.gym[0].item, amount: String(QUICK.gym[0].amount), customer: '', method: 'transfer' as PaymentMethod, date: '' });
+  const [f, setF] = useState({ item: QUICK.gym[0].item, amount: String(QUICK.gym[0].amount), customer: '', method: 'transfer' as ChargeMethod, date: '' });
+  const [guest, setGuest] = useState<number | ''>('');
+  const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(f.method === 'room' ? '/inhouse' : null);
   const { busy, error: saveErr, submit } = useSubmit();
   const toast = useToast();
 
@@ -48,8 +50,11 @@ export default function OtherIncome() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      await api('/facility-income', { body: { facility, item: f.item, amount: Number(f.amount), customer: f.customer, method: f.method, date: f.date || undefined } });
-      toast(`${naira(Number(f.amount))} recorded for the ${FACILITY_LABELS[facility].toLowerCase()}`);
+      await api('/facility-income', {
+        body: { facility, item: f.item, amount: Number(f.amount), customer: f.customer, method: f.method, reservation_id: f.method === 'room' ? guest : undefined, date: f.date || undefined },
+      });
+      toast(f.method === 'room' ? `${naira(Number(f.amount))} added to the room bill` : `${naira(Number(f.amount))} recorded for the ${FACILITY_LABELS[facility].toLowerCase()}`);
+      setGuest('');
       setF({ ...f, customer: '' });
       reload();
     });
@@ -82,7 +87,7 @@ export default function OtherIncome() {
                         <td><span className="badge plain">{FACILITY_LABELS[r.facility]}</span></td>
                         <td>{r.item}</td>
                         <td className="muted">{r.customer ?? '—'}</td>
-                        <td>{PAYMENT_LABELS[r.method]}</td>
+                        <td>{r.method === 'room' ? <span className="badge gold plain">Room {r.room_number}</span> : CHARGE_LABELS[r.method]}</td>
                         <td className="r strong">{naira(r.amount)}</td>
                       </tr>
                     ))}
@@ -113,17 +118,25 @@ export default function OtherIncome() {
             <div className="grid-2">
               <Field label="Amount (₦)"><input className="input num" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, '') })} required /></Field>
               <Field label="Paid by">
-                <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value as PaymentMethod })}>
-                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{PAYMENT_LABELS[m]}</option>)}
+                <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value as ChargeMethod })}>
+                  {CHARGE_METHODS.map((m) => <option key={m} value={m}>{CHARGE_LABELS[m]}</option>)}
                 </select>
               </Field>
             </div>
-            <Field label="Customer (optional)"><input className="input" value={f.customer} onChange={(e) => setF({ ...f, customer: e.target.value })} maxLength={120} placeholder="Name or room number" /></Field>
-            {can(user, 'manager') && (
+            {f.method === 'room' && (
+              <Field label="In-house guest">
+                <select className="input" value={guest} onChange={(e) => setGuest(e.target.value ? Number(e.target.value) : '')} required>
+                  <option value="">Choose a room…</option>
+                  {inhouse.data?.map((g) => <option key={g.reservation_id} value={g.reservation_id}>Room {g.room_number} — {g.guest_name}</option>)}
+                </select>
+              </Field>
+            )}
+            {f.method !== 'room' && <Field label="Customer (optional)"><input className="input" value={f.customer} onChange={(e) => setF({ ...f, customer: e.target.value })} maxLength={120} placeholder="Name or phone" /></Field>}
+            {can(user, 'manager') && f.method !== 'room' && (
               <Field label="Date" hint="Leave empty for today"><input className="input" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
             )}
             <ErrorBox error={saveErr} />
-            <button className="btn gold lg block" disabled={busy || !f.amount}>{busy ? 'Saving…' : `Record ${f.amount ? naira(Number(f.amount)) : ''}`}</button>
+            <button className="btn gold lg block" disabled={busy || !f.amount || (f.method === 'room' && !guest)}>{busy ? 'Saving…' : `Record ${f.amount ? naira(Number(f.amount)) : ''}`}</button>
           </form>
         </Card>
       </div>
