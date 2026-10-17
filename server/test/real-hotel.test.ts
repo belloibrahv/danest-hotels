@@ -56,7 +56,7 @@ describe('first run', () => {
     const r = await call('/setup/owner', { body: { code: 'test-setup-code', name: 'Owner Name', username: 'owner', password: OWNER_PW } });
     ok(r, 201);
     owner = r.cookie!;
-    assert.equal((await call('/auth/me', { cookie: owner })).json.role, 'manager');
+    assert.equal((await call('/auth/me', { cookie: owner })).json.role, 'ceo', 'the person who sets the hotel up is its owner');
     ok(await call('/setup/owner', { body: { code: 'TEST-SETUP-CODE', name: 'Intruder', username: 'x2', password: 'another long one' } }), 409);
     assert.equal((await call('/setup/status')).json.needs_setup, false);
   });

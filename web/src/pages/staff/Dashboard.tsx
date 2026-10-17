@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
 import { addDays, fmtDate, fmtDateLong, naira, nairaShort, pct } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import { can, useAuth } from '@/lib/auth';
 import { useApi } from '@/lib/hooks';
 import { useDesk } from './desk/Desk';
 
@@ -157,7 +157,7 @@ export default function Dashboard() {
   if (!data) return <LoadingRows rows={8} />;
   const { ops, month, today, last30, lowStock, collectedToday } = data;
   const firstName = user!.name.replace(/^(Mrs?|Ms|Dr)\.?\s+/, '').split(' ')[0];
-  const manager = user!.role === 'manager';
+  const manager = can(user, 'manager');
 
   const attention = [
     ops.requests > 0 && { to: '/staff/reservations?status=pending', icon: CalendarClock, text: `${ops.requests} website request${ops.requests > 1 ? 's' : ''} to confirm`, tone: 'brand' as const },

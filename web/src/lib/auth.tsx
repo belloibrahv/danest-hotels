@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Role } from '../../../shared/constants';
+import { hasRole, type Role } from '../../../shared/constants';
 import { api } from './api';
 
 export interface User {
@@ -58,5 +58,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={{ user, login, verify, refresh, logout }}>{children}</Ctx.Provider>;
 }
 
-export const can = (user: User | null | undefined, ...roles: Role[]) => !!user && roles.includes(user.role);
-export const homeFor = (role: Role) => (role === 'bar' ? '/staff/pos' : role === 'housekeeping' ? '/staff/housekeeping' : '/staff');
+/** The owner/CEO passes any manager check, exactly as on the server. */
+export const can = (user: User | null | undefined, ...roles: Role[]) => !!user && hasRole(user.role, roles);
+const HOME: Partial<Record<Role, string>> = {
+  ceo: '/staff/executive',
+  accountant: '/staff/accounts',
+  auditor: '/staff/audit',
+  bar: '/staff/pos',
+  housekeeping: '/staff/housekeeping',
+};
+export const homeFor = (role: Role) => HOME[role] ?? '/staff';

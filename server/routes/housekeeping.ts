@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { PAYMENT_METHODS, TICKET_PRIORITIES, TICKET_STATUSES } from '../../shared/constants.ts';
+import { PAYMENT_METHODS, isManager, TICKET_PRIORITIES, TICKET_STATUSES } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
 import { all, audit, get, run, tx } from '../db.ts';
+import { publish } from '../live.ts';
 import { HttpError, bad, body, h, int, oneOf, str, today } from '../lib.ts';
 
 /** Housekeeping board and maintenance tickets: the back-of-house side of every room. */
@@ -11,6 +12,7 @@ const hk = allow('manager', 'frontdesk', 'housekeeping');
 
 export function logRoom(roomId: number, action: 'dirty' | 'assigned' | 'cleaned' | 'out_of_order' | 'back_in_service', userId: number | null, note?: string) {
   run('INSERT INTO housekeeping_log (room_id, action, user_id, note) VALUES (?,?,?,?)', roomId, action, userId, note ?? null);
+  publish('rooms');
 }
 
 housekeeping.get(
@@ -149,7 +151,7 @@ housekeeping.post(
     const b = body(req);
     const resolution = str(b, 'resolution', { max: 500 });
     const cost = b.cost === undefined || b.cost === '' || b.cost === 0 ? 0 : int(b, 'cost', { min: 1, max: 50_000_000 });
-    if (cost && user.role !== 'manager') throw new HttpError(403, 'Only a manager can record what a repair cost');
+    if (cost && !isManager(user.role)) throw new HttpError(403, 'Only a manager can record what a repair cost');
     const method = cost ? oneOf(b, 'method', PAYMENT_METHODS) : 'cash';
     const paidTo = str(b, 'paid_to', { max: 120, optional: true });
     tx(() => {

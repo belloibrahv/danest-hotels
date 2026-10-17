@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
-import type { Role } from '../shared/constants.ts';
+import { hasRole, type Role } from '../shared/constants.ts';
 import { get, run } from './db.ts';
 import { HttpError } from './lib.ts';
 import { keyedHash } from './secrets.ts';
@@ -156,12 +156,12 @@ export function loadSession(req: Request, _res: Response, next: NextFunction) {
   next();
 }
 
-/** Deny by default: every staff route names the roles allowed to use it. */
+/** Deny by default: every staff route names the roles allowed to use it. The owner/CEO passes any manager gate. */
 export const allow =
   (...roles: Role[]) =>
   (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) return next(new HttpError(401, 'Please sign in'));
-    if (!roles.includes(req.user.role)) return next(new HttpError(403, 'Your role does not have access to this'));
+    if (!hasRole(req.user.role, roles)) return next(new HttpError(403, 'Your role does not have access to this'));
     next();
   };
 

@@ -236,7 +236,7 @@ function StatementSheet({ id, onClose, onEdit, version, onChange }: { id: number
                 )}
               </div>
 
-              {can(user, 'manager') && s.balance > 0 && (
+              {can(user, 'manager', 'accountant') && s.balance > 0 && (
                 <form onSubmit={record} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
                   <h3 className="text-sm font-semibold sm:col-span-2">Record a payment from {s.name}</h3>
                   <Field label="Amount">

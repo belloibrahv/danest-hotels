@@ -1,17 +1,24 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadSession } from './auth.ts';
+import { ROLES } from '../shared/constants.ts';
+import { allow, loadSession } from './auth.ts';
+import { stream } from './live.ts';
 import { HttpError } from './lib.ts';
 import { closeDay } from './routes/closeday.ts';
+import { accounts } from './routes/accounts.ts';
+import { catalog } from './routes/catalog.ts';
 import { commercial } from './routes/commercial.ts';
 import { recordSuccess, validSignature } from './paystack.ts';
 import { config } from './routes/config.ts';
+import { executive } from './routes/executive.ts';
 import { finance } from './routes/finance.ts';
 import { housekeeping } from './routes/housekeeping.ts';
 import { inventory } from './routes/inventory.ts';
 import { publicApi } from './routes/public.ts';
+import { purchasing } from './routes/purchasing.ts';
 import { reservations } from './routes/reservations.ts';
+import { review } from './routes/review.ts';
 import { team } from './routes/team.ts';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -69,6 +76,8 @@ export function createApp() {
   });
 
   const api = express.Router();
+  // Photos and spreadsheet uploads are the only bodies allowed to be large; everything else stays small.
+  api.use(['/products/import', /^\/products\/\d+\/image$/], express.json({ limit: '2mb' }));
   api.use(express.json({ limit: '50kb' }));
   api.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -81,6 +90,7 @@ export function createApp() {
   });
   api.use(loadSession);
   api.get('/health', (_req, res) => res.json({ ok: true }));
+  api.get('/live', allow(...ROLES), stream);
   api.use('/public', publicApi);
   api.use(team);
   api.use(reservations);
@@ -90,6 +100,11 @@ export function createApp() {
   api.use(housekeeping);
   api.use(closeDay);
   api.use(commercial);
+  api.use(purchasing);
+  api.use(catalog);
+  api.use(accounts);
+  api.use(review);
+  api.use(executive);
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use('/api', api);
 

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLive } from '@/lib/live';
 import { GuestSheet } from './GuestSheet';
 import { NewReservation, type NewReservationPreset } from './NewReservation';
 import { ReservationSheet } from './ReservationSheet';
@@ -31,8 +32,10 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   const resId = idParam('reservation');
   const guestId = idParam('guest');
   const [creating, setCreating] = useState<{ preset?: NewReservationPreset } | null>(null);
-  const [version, setVersion] = useState(0);
-  const changed = useCallback(() => setVersion((v) => v + 1), []);
+  const [local, setLocal] = useState(0);
+  const changed = useCallback(() => setLocal((v) => v + 1), []);
+  // Changes made at another desk, the till or a housekeeper's phone refresh every front-office screen too.
+  const version = local + useLive('reservations', 'rooms', 'money');
 
   /** Show one sheet (or none). Opening adds a history entry so "back" closes it. */
   const show = useCallback(

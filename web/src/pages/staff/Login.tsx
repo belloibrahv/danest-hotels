@@ -14,7 +14,10 @@ import { useSubmit } from '@/lib/hooks';
 // One-click demo accounts appear only in development builds with demo data loaded.
 const DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_LOGINS === '1';
 const DEMO_USERS = [
+  ['owner', 'Owner / CEO'],
   ['manager', 'Manager'],
+  ['accountant', 'Accountant'],
+  ['auditor', 'Auditor'],
   ['frontdesk', 'Front desk'],
   ['bar', 'Bar & shop'],
   ['housekeeping', 'Housekeeping'],

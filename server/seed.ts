@@ -15,6 +15,7 @@ import { hashPassword } from './auth.ts';
 import { needsSetup } from './settings.ts';
 import { all, db, get, run, tx } from './db.ts';
 import { addDays, today } from './lib.ts';
+import { dayReport } from './routes/closeday.ts';
 
 const DEMO_PASSWORD = 'Danest@2026!';
 export const DEMO_USERS = [
@@ -23,6 +24,9 @@ export const DEMO_USERS = [
   { name: 'Grace Okon', username: 'bar', role: 'bar' },
   { name: 'Ibrahim Musa', username: 'frontdesk2', role: 'frontdesk' },
   { name: 'Blessing Eze', username: 'housekeeping', role: 'housekeeping' },
+  { name: 'Chief Adebayo Danesi', username: 'owner', role: 'ceo' },
+  { name: 'Mrs. Ronke Alabi', username: 'accountant', role: 'accountant' },
+  { name: 'Mr. Chinedu Okeke', username: 'auditor', role: 'auditor' },
 ] as const;
 
 const ROOM_TYPES = [
@@ -118,12 +122,12 @@ export function seed(opts: { live?: boolean } = {}) {
   const passwords = DEMO_USERS.map(() => (opts.live ? randomBytes(12).toString('base64url') : DEMO_PASSWORD));
 
   tx(() => {
-    for (const t of ['messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
+    for (const t of ['audit_queries', 'targets', 'supplier_payments', 'product_images', 'messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'suppliers', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
     const userIds = DEMO_USERS.map((u, i) => run('INSERT INTO users (name, username, role, password_hash) VALUES (?,?,?,?)', u.name, u.username, u.role, hashPassword(passwords[i])).id);
-    const [managerId, deskId, barId, desk2Id] = userIds;
+    const [managerId, deskId, barId, desk2Id, , ownerId, accountantId, auditorId] = userIds;
 
     // The public website never shows an invented phone number or email: on a live database these stay for the owner to fill in.
     for (const [k, v] of Object.entries({ ...(!opts.live && { phone: '0803 000 0000', email: 'frontdesk@example.com' }), highlights: [
@@ -273,12 +277,27 @@ export function seed(opts: { live?: boolean } = {}) {
     }
 
     // ----- products, purchases & sales -----
-    const products = PRODUCTS.map(([name, category, unit, price, cost, reorder, weight]) => ({
-      id: run('INSERT INTO products (name, category, unit, price, avg_cost, stock, reorder_level) VALUES (?,?,?,?,?,0,?)', name, category, unit, price, cost, reorder).id,
+    // Bodija sells on 14 days' credit; Dugbe is paid on delivery.
+    const SUPPLIERS: [string, string, string, number][] = [
+      ['Bodija Drinks Depot', 'Alhaji Lateef', '0803 111 2201', 14],
+      ['Nigerian Breweries — Ibadan distributor', 'Mr. Femi Oke', '0805 221 3302', 30],
+      ['Guinness Nig. — Oyo dealer', 'Mrs. Kemi Ade', '0807 331 4403', 21],
+      ['Mama Titi Snacks', 'Mama Titi', '0809 441 5504', 0],
+      ['Dugbe Wholesale Mart', 'Sales desk', '0802 551 6605', 0],
+    ];
+    const supplierIds = SUPPLIERS.map(([name, contact, phone, terms]) => run('INSERT INTO suppliers (name, contact_name, phone, terms_days) VALUES (?,?,?,?)', name, contact, phone, terms).id);
+    const suppliers = SUPPLIERS.map((s) => s[0]);
+    const products = PRODUCTS.map(([name, category, unit, price, cost, reorder, weight], i) => ({
+      id: run(
+        'INSERT INTO products (name, category, unit, price, avg_cost, stock, reorder_level, sku, barcode, supplier_id) VALUES (?,?,?,?,?,0,?,?,?,?)',
+        name, category, unit, price, cost, reorder, `${category === 'drinks' ? 'DRK' : 'SNK'}-${String(i + 1).padStart(3, '0')}`,
+        // Nigerian EAN-13 prefix (615) with a stable item number; check digit left off, as many local labels do.
+        `615${String(1000000000 + i * 7919).slice(0, 9)}`, supplierIds[price < 10000 && weight >= 4 ? 0 : 4],
+      ).id,
       price, baseCost: cost, reorder, weight, stock: 0, avg: cost,
     }));
     const totalWeight = products.reduce((a, p) => a + p.weight, 0);
-    const suppliers = ['Bodija Drinks Depot', 'Nigerian Breweries — Ibadan distributor', 'Guinness Nig. — Oyo dealer', 'Mama Titi Snacks', 'Dugbe Wholesale Mart'];
+    const credit: { id: number; total: number; date: string }[] = [];
 
     const restock = (date: string, full: boolean) => {
       const inflation = 1 + (0.06 * (Date.parse(date) - Date.parse(START))) / (120 * 86_400_000);
@@ -289,7 +308,14 @@ export function seed(opts: { live?: boolean } = {}) {
       for (const [s, group] of [[suppliers[0], lines.filter((l) => l.p.price < 10000 && l.p.weight >= 4)], [suppliers[4], lines.filter((l) => l.p.price >= 10000 || l.p.weight < 4)]] as const) {
         if (!group.length) continue;
         const total = group.reduce((a, l) => a + l.qty * l.cost, 0);
-        const pid = run('INSERT INTO purchases (ref, supplier, date, total, recorded_by, created_at) VALUES (?,?,?,?,?,?)', ref('PO'), s, date, total, managerId, stamp(date, 10, 15)).id;
+        const onCredit = s === suppliers[0];
+        const pid = run(
+          `INSERT INTO purchases (ref, supplier, supplier_id, date, total, recorded_by, created_at, status, terms, due_date, invoice_no, received_at, received_by)
+           VALUES (?,?,?,?,?,?,?, 'received', ?,?,?,?,?)`,
+          ref('PO'), s, supplierIds[suppliers.indexOf(s)], date, total, managerId, stamp(date, 10, 15), onCredit ? 'credit' : method(), onCredit ? addDays(date, 14) : null,
+          `INV-${between(10000, 99999)}`, stamp(date, 10, 15), managerId,
+        ).id;
+        if (onCredit) credit.push({ id: pid, total, date });
         for (const l of group) {
           l.p.avg = Math.round((l.p.stock * l.p.avg + l.qty * l.cost) / (l.p.stock + l.qty));
           l.p.stock += l.qty;
@@ -383,6 +409,48 @@ export function seed(opts: { live?: boolean } = {}) {
 
     for (const p of products) run('UPDATE products SET stock = ?, avg_cost = ? WHERE id = ?', p.stock, p.avg, p.id);
 
+    // ----- supplier bills: older ones paid around their due date (one paid in two parts); the last few still owed -----
+    for (const b of credit) {
+      const due = addDays(b.date, 14);
+      if (due > addDays(T, -3)) continue;
+      const paidOn = addDays(due, between(-2, 6));
+      if (chance(0.2)) {
+        const half = round(b.total / 2, 1000);
+        run('INSERT INTO supplier_payments (purchase_id, amount, method, reference, date, paid_by, created_at) VALUES (?,?,?,?,?,?,?)', b.id, half, 'transfer', `TRF-${between(100000, 999999)}`, paidOn, accountantId, stamp(paidOn, 11, 0));
+        if (addDays(paidOn, 7) < T) run('INSERT INTO supplier_payments (purchase_id, amount, method, reference, date, paid_by, created_at) VALUES (?,?,?,?,?,?,?)', b.id, b.total - half, 'transfer', `TRF-${between(100000, 999999)}`, addDays(paidOn, 7), accountantId, stamp(addDays(paidOn, 7), 11, 0));
+      } else run('INSERT INTO supplier_payments (purchase_id, amount, method, reference, date, paid_by, created_at) VALUES (?,?,?,?,?,?,?)', b.id, b.total, 'transfer', `TRF-${between(100000, 999999)}`, paidOn, accountantId, stamp(paidOn, 11, 0));
+    }
+
+    // ----- an order placed with the brewery, not yet delivered -----
+    {
+      const lines = products.filter((p) => p.price < 3000).slice(0, 4).map((p) => ({ p, qty: p.reorder * 2, cost: round(p.baseCost * 1.06, 10) }));
+      const total = lines.reduce((a, l) => a + l.qty * l.cost, 0);
+      const pid = run("INSERT INTO purchases (ref, supplier, supplier_id, date, total, recorded_by, created_at, status, notes) VALUES (?,?,?,?,?,?,?, 'ordered', ?)",
+        ref('PO'), suppliers[1], supplierIds[1], addDays(T, -1), total, managerId, stamp(addDays(T, -1), 15, 30), 'Delivery promised for Friday').id;
+      for (const l of lines) run('INSERT INTO purchase_items (purchase_id, product_id, qty, unit_cost) VALUES (?,?,?,?)', pid, l.p.id, l.qty, l.cost);
+    }
+
+    // ----- stock counts: a few breakages and a shortfall the auditor will want explained -----
+    for (const [i, change, reason, daysAgo] of [[0, -3, '3 bottles broken during delivery', 40], [12, -2, 'Expired — removed from shelf', 25], [14, -1, 'Count short at stock-take', 9], [4, -4, 'Count short at stock-take', 4]] as const) {
+      const p = products[i];
+      const take = Math.min(-change, p.stock);
+      if (!take) continue;
+      p.stock -= take;
+      run('UPDATE products SET stock = ? WHERE id = ?', p.stock, p.id);
+      const d = addDays(T, -daysAgo);
+      run("INSERT INTO audit_log (user_id, action, entity, entity_id, detail, created_at) VALUES (?, 'stock_adjust', 'product', ?, ?, ?)", managerId, p.id, JSON.stringify({ change: -take, reason, value: -take * p.avg }), stamp(d, 18, 20));
+    }
+
+    // ----- the owner's targets and the accountant's budgets, this month and the last three -----
+    for (let m = 0; m < 4; m++) {
+      const key = new Date(Date.UTC(Number(T.slice(0, 4)), Number(T.slice(5, 7)) - 1 - m, 1)).toISOString().slice(0, 7);
+      for (const [k, v] of [['revenue', 21_000_000], ['net_profit', 6_500_000], ['occupancy', 65], ['adr', 40_000],
+        ['expense:salaries', 1_840_000], ['expense:diesel', 4_200_000], ['expense:electricity', 450_000], ['expense:repairs', 600_000],
+        ['expense:housekeeping', 300_000], ['expense:security', 260_000], ['expense:pool_gym', 100_000], ['expense:water', 45_000], ['expense:other', 150_000]] as const) {
+        run('INSERT OR REPLACE INTO targets (month, key, amount, set_by) VALUES (?,?,?,?)', key, k, v, k.startsWith('expense:') ? accountantId : ownerId);
+      }
+    }
+
     // Every stay is priced per night (demo stays were sold at a flat rate).
     db.exec(`INSERT INTO reservation_nights (reservation_id, date, rate)
       WITH RECURSIVE n(id, d, out, rate) AS (
@@ -406,6 +474,32 @@ export function seed(opts: { live?: boolean } = {}) {
     );
     const NOTES = ['Prefers a ground-floor room', 'Likes extra pillows; early riser', 'Corporate guest — sends company invoice', 'Always asks for room 302 if free', 'Allergic to groundnuts — tell the kitchen', 'Celebrates anniversary in December'];
     top.forEach((g, i) => run('UPDATE guests SET vip = 1, notes = ? WHERE id = ?', NOTES[i], g.id));
+    // ----- the night audit: every day closed up to two weeks ago, the drawer short or over now and then -----
+    const closeTo = addDays(T, -14);
+    for (let d = START; d <= closeTo; d = addDays(d, 1)) {
+      const report = dayReport(d);
+      const expected = report.collections.byMethod;
+      const variance = chance(0.08) ? -round(between(500, 12_000), 500) : chance(0.03) ? round(between(500, 3000), 500) : 0;
+      const notes = variance ? (variance < 0 ? pick(['Short — change given wrongly at the bar', 'Short — cashier to explain', 'POS reversal paid back in cash']) : 'Over — customer left change') : null;
+      run(
+        `INSERT INTO day_closures (date, closed_by, closed_at, expected_cash, counted_cash, expected_transfer, expected_pos, variance, notes, summary) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        d, managerId, stamp(addDays(d, 1), 1, 30), expected.cash ?? 0, (expected.cash ?? 0) + variance, expected.transfer ?? 0, expected.pos ?? 0, variance, notes, JSON.stringify(report),
+      );
+      run('INSERT INTO audit_log (user_id, action, entity, detail, created_at) VALUES (?,?,?,?,?)', managerId, variance ? 'close_day_with_variance' : 'close_day', 'day', JSON.stringify({ date: d, variance }), stamp(addDays(d, 1), 1, 30));
+    }
+
+    // ----- the auditor's questions: one answered and closed, one waiting on management -----
+    const variance = get<{ date: string; variance: number }>('SELECT date, variance FROM day_closures WHERE variance < 0 ORDER BY date DESC LIMIT 1');
+    if (variance) {
+      const q = run("INSERT INTO audit_queries (kind, ref_label, amount, question, status, raised_by, raised_at, answer, answered_by, answered_at) VALUES ('cash_variance', ?, ?, ?, 'answered', ?, ?, ?, ?, ?)",
+        variance.date, variance.variance, `The drawer was short on ${variance.date}. Who was on the till, and has the money been recovered?`, auditorId, stamp(addDays(variance.date, 2), 10, 0),
+        'Grace was on the bar till. The shortfall was deducted from her salary with her agreement; the deduction is on the payroll sheet.', managerId, stamp(addDays(variance.date, 3), 9, 0)).id;
+      if (chance(0.5)) run("UPDATE audit_queries SET status = 'closed', closed_by = ?, closed_at = ? WHERE id = ?", auditorId, stamp(addDays(variance.date, 4), 9, 0), q);
+    }
+    const short = products[4];
+    run("INSERT INTO audit_queries (kind, ref_id, ref_label, amount, question, raised_by, raised_at) VALUES ('shrinkage', ?, NULL, ?, ?, ?, ?)",
+      short.id, 4 * short.avg, 'Four bottles of Guinness Stout were written off as "count short" this week, after one short count earlier in the month. Please explain, and say who holds the bar store key.', auditorId, stamp(addDays(T, -2), 11, 30));
+
     run("INSERT INTO audit_log (user_id, action, entity, detail) VALUES (?, 'seed', 'system', ?)", managerId, JSON.stringify({ from: START, to: T }));
   });
 

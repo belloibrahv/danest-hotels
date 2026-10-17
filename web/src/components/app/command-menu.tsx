@@ -1,7 +1,7 @@
 import { BedDouble, CalendarCheck, Plus, Star, User, UserPlus, Wine } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RESERVATION_STATUS_LABELS, type ReservationStatus, type Role } from '../../../../shared/constants';
+import { RESERVATION_STATUS_LABELS, hasRole, type ReservationStatus, type Role } from '../../../../shared/constants';
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from '@/components/ui/command';
 import { api, fmtDate } from '@/lib/api';
 import { useDesk } from '@/pages/staff/desk/Desk';
@@ -19,7 +19,7 @@ export function CommandMenu({ nav, role, open, setOpen }: { nav: NavItem[]; role
   const [results, setResults] = useState<Results | null>(null);
   const navigate = useNavigate();
   const desk = useDesk();
-  const deskRole = role === 'manager' || role === 'frontdesk';
+  const deskRole = hasRole(role, ['manager', 'frontdesk']);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -108,7 +108,7 @@ export function CommandMenu({ nav, role, open, setOpen }: { nav: NavItem[]; role
               </CommandItem>
             </>
           )}
-          {(role === 'manager' || role === 'bar') && (
+          {hasRole(role, ['manager', 'bar']) && (
             <CommandItem value="open till bar sale" onSelect={() => run(() => navigate('/staff/pos'))}>
               <Wine /> Open the till
             </CommandItem>
@@ -116,7 +116,7 @@ export function CommandMenu({ nav, role, open, setOpen }: { nav: NavItem[]; role
         </CommandGroup>
         <CommandGroup heading="Go to">
           {nav
-            .filter((n) => n.roles.includes(role))
+            .filter((n) => hasRole(role, n.roles))
             .map((n) => (
               <CommandItem key={n.to} value={`go ${n.label}`} onSelect={() => run(() => navigate(n.to))}>
                 <n.icon /> {n.label}

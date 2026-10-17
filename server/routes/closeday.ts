@@ -14,7 +14,7 @@ import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 export const closeDay = Router();
 const manager = allow('manager');
 
-function dayReport(d: string) {
+export function dayReport(d: string) {
   const p = profitAndLoss(d, d);
   return {
     revenue: p.revenue,
@@ -47,7 +47,7 @@ function openStays(d: string) {
 
 closeDay.get(
   '/close-day',
-  manager,
+  allow('manager', 'accountant', 'auditor'),
   h((req, res) => {
     const t = today();
     const last = lastClosedDate();

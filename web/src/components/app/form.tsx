@@ -138,7 +138,7 @@ export function useFieldId() {
 // ---------- void with a reason (till and takings mistakes) ----------
 
 /** A small "Void" action that asks why before it removes an entry. The reason goes to the activity log. */
-export function VoidButton({ label, onVoid }: { label: string; onVoid: (reason: string) => Promise<unknown> }) {
+export function VoidButton({ label, onVoid, verb = 'Void' }: { label: string; onVoid: (reason: string) => Promise<unknown>; verb?: string }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -147,8 +147,8 @@ export function VoidButton({ label, onVoid }: { label: string; onVoid: (reason: 
   return (
     <Popover open={open} onOpenChange={(o) => (setOpen(o), setError(null))}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive" aria-label={`Void ${label}`}>
-          Void
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive" aria-label={`${verb} ${label}`}>
+          {verb}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72">
@@ -169,13 +169,13 @@ export function VoidButton({ label, onVoid }: { label: string; onVoid: (reason: 
             }
           }}
         >
-          <div className="text-sm font-medium">Void {label}?</div>
+          <div className="text-sm font-medium">{verb} {label}?</div>
           <Field label="Why" htmlFor={id} hint="Kept in the activity log.">
             <Input id={id} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="e.g. Rang up twice" autoFocus />
           </Field>
           {error && <p className="text-xs text-destructive">{error}</p>}
           <Button type="submit" variant="destructive" size="sm" disabled={busy || reason.trim().length < 3}>
-            Void
+            {verb}
           </Button>
         </form>
       </PopoverContent>

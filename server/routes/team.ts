@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { ROLES } from '../../shared/constants.ts';
+import { ROLES, isManager, type Role } from '../../shared/constants.ts';
 import {
   allow,
   checkCredentials,
@@ -240,11 +240,22 @@ team.post(
   }),
 );
 
-// ---------- team management (manager only) ----------
+// ---------- team management (manager only; the auditor can see who has access) ----------
+
+/**
+ * Owner accounts are the owner's business: only an owner can create one, change one or make
+ * someone an owner. A hotel upgraded from before owners existed can promote its first one.
+ */
+function guardOwner(actor: Role, targetRole: string | null, newRole: unknown) {
+  const ownerExists = !!get("SELECT 1 FROM users WHERE role = 'ceo' AND active = 1");
+  if (actor === 'ceo' || (!ownerExists && newRole === 'ceo')) return;
+  if (targetRole === 'ceo') throw new HttpError(403, "Only the owner can change the owner's account");
+  if (newRole === 'ceo') throw new HttpError(403, 'Only the owner can make someone an owner');
+}
 
 team.get(
   '/users',
-  allow('manager'),
+  allow('manager', 'auditor'),
   h((_req, res) => {
     res.json(all('SELECT id, name, username, role, active, totp_enabled, last_login_at, created_at FROM users ORDER BY active DESC, role, name'));
   }),
@@ -258,6 +269,7 @@ team.post(
     const name = str(b, 'name', { max: 80 });
     const username = str(b, 'username', { max: 32, min: 3, pattern: /^[a-z0-9._-]+$/i }).toLowerCase();
     const role = oneOf(b, 'role', ROLES);
+    guardOwner(currentUser(req).role, null, role);
     const password = typeof b.password === 'string' ? b.password : '';
     const problem = passwordProblem(password);
     if (problem) throw bad(problem);
@@ -277,7 +289,8 @@ team.patch(
     const b = body(req);
     const target = get<{ id: number; role: string; active: number }>('SELECT id, role, active FROM users WHERE id = ?', id);
     if (!target) throw new HttpError(404, 'User not found');
-    if (id === meUser.id && (b.active === false || (b.role && b.role !== 'manager'))) throw bad("You can't remove your own manager access");
+    if (id === meUser.id && (b.active === false || (b.role && !isManager(b.role as Role)))) throw bad("You can't remove your own manager access");
+    guardOwner(meUser.role, target.role, b.role);
 
     tx(() => {
       if (b.role !== undefined) run('UPDATE users SET role = ? WHERE id = ?', oneOf(b, 'role', ROLES), id);
@@ -303,7 +316,7 @@ team.patch(
 
 team.get(
   '/audit',
-  allow('manager'),
+  allow('manager', 'auditor'),
   h((req, res) => {
     const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 40) : '';
     res.json(

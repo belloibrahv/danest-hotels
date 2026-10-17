@@ -31,6 +31,11 @@ One system that runs the hotel the way the owner described it:
 | **Guest messages** | Confirmation, reminder, balance and thank-you messages from each reservation. Sent by SMS when Termii is connected, otherwise opened ready to send on WhatsApp. Every message is logged |
 | **Interface** | shadcn/ui on Tailwind CSS v4 (Radix), Geist type, light and dark mode, collapsible sidebar, ⌘K command palette, side sheets for reservations, guests and companies, recharts charts with a palette checked for colour-blindness. Design language at `/brand` |
 | **App & devices** | Installable as an app on the reception PC, a tablet or a housekeeper's phone (Install Danest app in the account menu; Share → Add to Home Screen on iPhone), with shortcuts to the room board, till, housekeeping and closing the day. Opens instantly and still loads on a weak connection; says clearly when offline so nobody thinks something was saved. Guest, money and staff data is never stored on the device. New versions are offered with a Reload prompt, never forced mid-task |
+| **Owner / CEO dashboard** | Executive view: revenue, profit, occupancy, ADR and RevPAR compared like-for-like with the same days last month and last year; monthly targets with a month-end projection (bookings already made, or this month's pace); 12-month trends; where bookings come from; team performance; a live feed of what's happening; and the signals that need the owner's eye (serious exceptions, unanswered audit queries, cash shortfalls, overdue money, unclosed days, rooms out of order, money-seeing accounts without two-step sign-in) |
+| **Accountant** | Cash book of every naira in and out (cash drawer vs bank, by payment method, exportable), receivables aged 0–90+ days (guest folios, and company accounts with payments cleared oldest-first), supplier bills aged by due date and paid in part or full, a monthly budget for each running cost against what's been spent, and every night-audit cash count |
+| **Auditor** | Read-only access to every naira and every action. Exceptions in one list (voids, refunds, guests let out owing, cash differences, reopened days, stock write-offs, deleted expenses, hand-set prices, back-dated entries, delivery shortfalls, access changes, repeated failed sign-ins) with a risk score; the full trail, filterable and exportable (the export itself is logged); and queries to management that stay on record until the auditor closes them |
+| **Stock & buying** | A catalogue with SKUs, barcodes (scan at the till), photos, descriptions and usual suppliers. Upload a spreadsheet to add items, change prices and receive opening stock in one go — checked row by row and saved all-or-nothing; export in the same columns. A stock card per item (every unit in and out, with the running balance). Insights: best sellers, items not selling, days of stock left, turnover, write-offs, and one-click purchase orders grouped by supplier. Purchases go ordered → received (only then do stock and average cost change; differences from the order are flagged for the auditor) → paid on delivery or on credit with a due date |
+| **Live** | Every screen updates by itself when something happens anywhere in the hotel (a sale at the till, a check-in, a delivery, a payment). Only the kind of change is broadcast, never amounts or names: each screen refetches through its own role-checked API |
 | **Light, dark or automatic** | Follows the phone or computer's setting by default; anyone can pick Light, Dark or Match device from the header. Printed invoices are always dark ink on white. Every screen is laid out for phones, tablets and desktops, and an open reservation or guest has its own link (shareable, survives a refresh, closed by the back gesture) |
 
 ---
@@ -40,7 +45,7 @@ One system that runs the hotel the way the owner described it:
 The live system **starts empty**: no sample bookings, no sample sales, and no invented staff. Every number on every report is the hotel's real business.
 
 1. Deploy, setting `DANEST_SECRET` and `DANEST_SETUP_CODE` (both long random strings).
-2. Open `/setup`, enter the setup code, and create the **owner's account with their real name**. Setup then closes permanently.
+2. Open `/setup`, enter the setup code, and create the **owner's account with their real name**. This account is the Owner / CEO. Setup then closes permanently. Only an owner can create or change another owner account (a hotel upgraded from an earlier version can promote its first owner from Team).
 3. Follow the checklist on the dashboard:
    - hotel details (phone, address, check-in times, bank details for invoices)
    - room types and rates
@@ -63,7 +68,7 @@ npm run dev          # API on :4000 + web on http://localhost:5173
 A fresh local database also starts empty and prints a one-time setup code in the terminal. To work with a full hotel instead, load the **test data**: four months of trading, five staff accounts, 20 rooms, company accounts, and bookings past, in house and upcoming (with rooms still free to book).
 
 ```bash
-npm run seed:demo    # wipes the local database, then signs you in as manager / frontdesk / bar / housekeeping (password Danest@2026!)
+npm run seed:demo    # wipes the local database, then signs you in as owner / manager / accountant / auditor / frontdesk / bar / housekeeping (password Danest@2026!)
 ```
 
 To load the same test data into the **live** database (for testing on the real system), run it on the server:
@@ -81,7 +86,7 @@ Production-style (one process serves the API and the built site on :4000):
 npm run build && npm start
 ```
 
-Other scripts: `npm test` (64 end-to-end API tests, including a complete real-hotel run from an empty database and Paystack and SMS flows against mock servers) and `npm run typecheck`.
+Other scripts: `npm test` (87 end-to-end API tests, including a complete real-hotel run from an empty database and Paystack and SMS flows against mock servers) and `npm run typecheck`.
 
 Environment variables:
 
@@ -103,7 +108,10 @@ Password for all: `Danest@2026!`. In dev builds, the sign-in page has one-click 
 
 | Username | Role | Sees |
 |---|---|---|
-| `manager` | Manager / owner | Everything, including costs and profit |
+| `owner` | Owner / CEO | Everything a manager sees, plus the executive dashboard, targets and owner accounts |
+| `manager` | Manager | Everything, including costs and profit |
+| `accountant` | Accountant | Accounts, purchases, suppliers, expenses, P&L, company accounts; records expenses, supplier and company payments, budgets |
+| `auditor` | Auditor | Reads everything financial, the full activity trail and the team list; raises queries; changes nothing |
 | `frontdesk` | Front desk | Rooms, reservations, guest payments, gym/pool/lounge takings. No profit or cost figures |
 | `bar` | Bar & shop | Till and stock levels. No cost prices |
 | `housekeeping` | Housekeeping | Rooms to clean and repair reports, on a phone |
@@ -133,7 +141,8 @@ server/            Node + Express 5, built-in node:sqlite, TypeScript run native
   app.ts           security headers, CSRF guard, routing, error handling
   auth.ts          scrypt passwords, hashed session tokens, role guard, rate limiting
   db.ts            schema (money in whole naira, dates in Lagos time)
-  routes/          reservations · inventory (products/till/purchases) · finance (other income/expenses/P&L/dashboard) · team · public
+  routes/          reservations · inventory (products/till) · purchasing (suppliers/orders/bills) · catalog (photos/upload/stock card/insights) · finance (other income/expenses/P&L/dashboard) · accounts (cash book/receivables/budgets) · review (exceptions/trail/queries/activity) · executive · team · public
+  live.ts          live updates over server-sent events (topic names only, never data)
   seed.ts          deterministic demo data
   test/            end-to-end API tests
 shared/constants.ts  the business model (streams, expense categories, roles): one list used by API and UI

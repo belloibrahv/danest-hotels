@@ -129,7 +129,7 @@ const COMPANY_LIST = `
 
 commercial.get(
   '/companies',
-  desk,
+  allow('manager', 'frontdesk', 'accountant', 'auditor'),
   h((req, res) => {
     res.json(all(`${COMPANY_LIST} ${req.query.all === '1' ? '' : 'WHERE c.active = 1'} ORDER BY c.active DESC, c.name`));
   }),
@@ -171,7 +171,7 @@ commercial.put(
 /** A statement: every stay billed to the account and every payment the company made. */
 commercial.get(
   '/companies/:id',
-  desk,
+  allow('manager', 'frontdesk', 'accountant', 'auditor'),
   h((req, res) => {
     const id = Number(req.params.id);
     const c = get(`${COMPANY_LIST} WHERE c.id = ?`, id);
@@ -199,7 +199,7 @@ commercial.get(
 
 commercial.post(
   '/companies/:id/payments',
-  manager,
+  allow('manager', 'accountant'),
   h((req, res) => {
     const user = currentUser(req);
     const id = Number(req.params.id);

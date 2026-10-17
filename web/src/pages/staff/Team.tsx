@@ -1,7 +1,7 @@
 import { History, KeyRound, Plus, Search, ShieldCheck, ShieldOff, UserCog } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import { ROLES, ROLE_HELP, ROLE_LABELS, type Role } from '../../../../shared/constants';
+import { BOOKS, ROLES, ROLE_HELP, ROLE_LABELS, hasRole, type Role } from '../../../../shared/constants';
 import { Field, SelectField, useConfirm } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, PageHeader } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
@@ -13,38 +13,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { api, fmtDateTime, naira } from '@/lib/api';
+import { api, fmtDateTime } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { ACTION, RED, describe, type A } from '@/lib/activity';
 import { useApi, useSubmit } from '@/lib/hooks';
 
 interface U { id: number; name: string; username: string; role: Role; active: number; totp_enabled: number; last_login_at: string | null }
-interface A { id: number; action: string; entity: string; entity_id: number | null; detail: string | null; created_at: string; user: string | null }
-
-const ACTION: Record<string, string> = {
-  login: 'signed in', login_failed: 'failed sign-in', create: 'created', update: 'updated', delete: 'deleted', confirm: 'confirmed', cancel: 'cancelled',
-  check_in: 'checked in', check_out: 'checked out', check_out_with_balance: 'checked out with balance owed', payment: 'took a payment on', room_status: 'changed status of',
-  stock_adjust: 'adjusted stock of', rate_change: 'changed rate of', booking_request: 'website booking', password_change: 'changed password', setup_owner: 'set up the hotel',
-  mfa_enabled: 'turned on two-step sign-in', mfa_disabled: 'turned off two-step sign-in', mfa_failed: 'entered a wrong code', login_recovery_code: 'used a recovery code',
-  sessions_revoked: 'signed out other devices', session_revoked: 'signed out a device', room_charge: 'charged to room', change_dates: 'changed dates of', room_move: 'moved room for',
-  no_show: 'marked no-show', close_day: 'closed the day', close_day_with_variance: 'closed the day with a cash difference', reopen_day: 'reopened a closed day', resolve: 'resolved',
-  bill_to_company: 'billed to company', company_payment: 'received company payment', set_company: 'changed company on', online_payment: 'online payment received', online_payment_mismatch: 'online payment amount mismatch',
-  message: 'messaged guest on', seed: 'loaded demo data',
-};
-const RED = /failed|mismatch|delete|disabled|variance|reopen|with_balance/;
-
-function describe(a: A) {
-  let d: Record<string, unknown> = {};
-  try {
-    d = a.detail ? JSON.parse(a.detail) : {};
-  } catch {
-    /* ignore */
-  }
-  const bits: string[] = [];
-  for (const k of ['amount', 'balance', 'total', 'variance'] as const) if (typeof d[k] === 'number') bits.push(`${k === 'balance' ? 'owed ' : ''}${naira(d[k] as number)}`);
-  for (const k of ['reason', 'company', 'username', 'status', 'name', 'room', 'date'] as const) if (typeof d[k] === 'string') bits.push(String(d[k]));
-  if (typeof d.change === 'number') bits.push(`${d.change > 0 ? '+' : ''}${d.change}`);
-  return bits.join(' · ');
-}
 
 export default function Team() {
   return (
@@ -68,6 +42,9 @@ function TeamList() {
   const { data, error, reload } = useApi<U[]>('/users');
   const [adding, setAdding] = useState(false);
   const [resetting, setResetting] = useState<U | null>(null);
+  const [changing, setChanging] = useState<U | null>(null);
+  // Only an owner can make an owner, except in a hotel upgraded from before owners existed: its manager promotes the first one.
+  const ownerRoles = ROLES.filter((r) => r !== 'ceo' || user!.role === 'ceo' || !data?.some((u) => u.role === 'ceo' && u.active));
   const patch = (u: U, body: object, msg: string) => api(`/users/${u.id}`, { method: 'PATCH', body }).then(() => (toast.success(msg), reload()), (e) => toast.error(e.message));
 
   return (
@@ -104,14 +81,16 @@ function TeamList() {
                     </div>
                   </TableCell>
                   <TableCell>{ROLE_LABELS[u.role]}</TableCell>
-                  <TableCell>{u.totp_enabled ? <StatusPill tone="success"><ShieldCheck /> On</StatusPill> : <StatusPill tone={u.role === 'manager' ? 'warning' : 'neutral'}>Off</StatusPill>}</TableCell>
+                  <TableCell>{u.totp_enabled ? <StatusPill tone="success"><ShieldCheck /> On</StatusPill> : <StatusPill tone={hasRole(u.role, BOOKS) ? 'warning' : 'neutral'}>Off</StatusPill>}</TableCell>
                   <TableCell className="hidden text-muted-foreground tabular-nums md:table-cell">{u.last_login_at ? fmtDateTime(u.last_login_at.replace('T', ' ').replace(/\.\d+Z$/, '')) : 'Never'}</TableCell>
                   <TableCell>{u.active ? <StatusPill tone="success">Active</StatusPill> : <StatusPill>Disabled</StatusPill>}</TableCell>
                   <TableCell className="pr-5 text-right">
+                    {u.role === 'ceo' && user!.role !== 'ceo' ? null : (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="sm">Manage</Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => setResetting(u)}><KeyRound /> Reset password</DropdownMenuItem>
+                        {u.id !== user!.id && <DropdownMenuItem onSelect={() => setChanging(u)}><UserCog /> Change role</DropdownMenuItem>}
                         {!!u.totp_enabled && u.id !== user!.id && (
                           <DropdownMenuItem onSelect={async () => (await confirm({ title: `Reset two-step sign-in for ${u.name}?`, description: 'Only if they lost their phone. They should set it up again straight away.', confirmLabel: 'Reset' })) && patch(u, { reset_2fa: true }, 'Two-step sign-in reset')}>
                             <ShieldOff /> Reset two-step
@@ -127,6 +106,7 @@ function TeamList() {
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -144,11 +124,13 @@ function TeamList() {
       </div>
       <AddStaff open={adding} onClose={() => setAdding(false)} onSaved={() => (setAdding(false), reload())} />
       <ResetPassword user={resetting} onClose={() => setResetting(null)} />
+      <ChangeRole user={changing} roles={ownerRoles} onClose={() => setChanging(null)} onSave={(u, role) => patch(u, { role }, `${u.name} is now ${ROLE_LABELS[role]}. They will sign in again.`).then(() => setChanging(null))} />
     </>
   );
 }
 
 function AddStaff({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const { user } = useAuth();
   const [f, setF] = useState({ name: '', username: '', role: 'frontdesk' as Role, password: '' });
   const { busy, error, submit } = useSubmit();
   const onSubmit = (e: FormEvent) => {
@@ -171,7 +153,7 @@ function AddStaff({ open, onClose, onSaved }: { open: boolean; onClose: () => vo
           <Field label="Full name"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required minLength={3} maxLength={80} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Username"><Input autoCapitalize="none" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.toLowerCase() })} required pattern="[a-z0-9._\-]{3,32}" /></Field>
-            <Field label="Role"><SelectField value={f.role} onChange={(v) => setF({ ...f, role: v as Role })} options={ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} /></Field>
+            <Field label="Role"><SelectField value={f.role} onChange={(v) => setF({ ...f, role: v as Role })} options={ROLES.filter((r) => r !== 'ceo' || user!.role === 'ceo').map((r) => ({ value: r, label: ROLE_LABELS[r] }))} /></Field>
           </div>
           <p className="-mt-1 text-xs text-muted-foreground">{ROLE_HELP[f.role]}</p>
           <Field label="Temporary password" hint="10+ characters. Ask them to change it after signing in.">
@@ -182,6 +164,28 @@ function AddStaff({ open, onClose, onSaved }: { open: boolean; onClose: () => vo
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit" form="staff" disabled={busy}>Add staff</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChangeRole({ user, roles, onClose, onSave }: { user: U | null; roles: readonly Role[]; onClose: () => void; onSave: (u: U, role: Role) => Promise<unknown> }) {
+  const [role, setRole] = useState<Role>('frontdesk');
+  const [key, setKey] = useState<U | null>(null);
+  if (key !== user) (setKey(user), user && setRole(user.role));
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Change role for {user?.name}</DialogTitle>
+          <DialogDescription>They are signed out everywhere and see the new screens next time they sign in.</DialogDescription>
+        </DialogHeader>
+        <Field label="Role"><SelectField value={role} onChange={(v) => setRole(v as Role)} options={roles.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} /></Field>
+        <p className="text-xs text-muted-foreground">{ROLE_HELP[role]}</p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!user || role === user.role} onClick={() => onSave(user!, role)}>Change role</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,21 +1,34 @@
 // Single source of truth for the business model, shared by the API and the UI.
 
-export const ROLES = ['manager', 'frontdesk', 'bar', 'housekeeping'] as const;
+export const ROLES = ['ceo', 'manager', 'accountant', 'auditor', 'frontdesk', 'bar', 'housekeeping'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
+  ceo: 'Owner / CEO',
   manager: 'Manager',
+  accountant: 'Accountant',
+  auditor: 'Auditor',
   frontdesk: 'Front desk',
   bar: 'Bar & shop',
   housekeeping: 'Housekeeping',
 };
 
 export const ROLE_HELP: Record<Role, string> = {
+  ceo: 'Everything a manager can do, plus the executive dashboard, targets and owner accounts',
   manager: 'Everything, including costs, profit, settings and closing the day',
+  accountant: 'Cash book, receivables, supplier bills, expenses, budgets and the profit & loss',
+  auditor: 'Reads every naira and every action, raises queries; cannot change anything',
   frontdesk: 'Reservations, guests, room bills, gym/pool/lounge takings, housekeeping',
   bar: 'Till, room charges and stock levels — never cost prices',
   housekeeping: 'Rooms to clean and maintenance reports, on a phone',
 };
+
+/** The owner/CEO can do everything a manager can; every other role gets exactly what it is named for. */
+export const hasRole = (role: Role, allowed: readonly Role[]) => allowed.includes(role) || (role === 'ceo' && allowed.includes('manager'));
+export const isManager = (role: Role) => role === 'manager' || role === 'ceo';
+
+/** Roles that can read the books: costs, profit, cash and receivables. */
+export const BOOKS: Role[] = ['manager', 'accountant', 'auditor'];
 
 export const PAYMENT_METHODS = ['cash', 'transfer', 'pos'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -160,6 +173,27 @@ export const DEFAULT_SETTINGS: HotelSettings = {
   highlights: [],
   deposit_percent: 0,
 };
+
+/** How a supplier bill was settled when stock arrived. 'credit' leaves it owing until the accountant pays it. */
+export const PURCHASE_TERMS = [...PAYMENT_METHODS, 'credit'] as const;
+export type PurchaseTerms = (typeof PURCHASE_TERMS)[number];
+export const PURCHASE_TERMS_LABELS: Record<PurchaseTerms, string> = { ...PAYMENT_LABELS, credit: 'On credit (pay later)' };
+
+export const PURCHASE_STATUSES = ['ordered', 'received', 'cancelled'] as const;
+export type PurchaseStatus = (typeof PURCHASE_STATUSES)[number];
+
+/** Monthly figures the owner aims for, and the accountant's budget for each running cost. */
+export const TARGET_KEYS = ['revenue', 'net_profit', 'occupancy', 'adr'] as const;
+export type TargetKey = (typeof TARGET_KEYS)[number];
+export const TARGET_LABELS: Record<TargetKey, string> = {
+  revenue: 'Revenue',
+  net_profit: 'Net profit',
+  occupancy: 'Occupancy (%)',
+  adr: 'Average daily rate',
+};
+
+export const QUERY_STATUSES = ['open', 'answered', 'closed'] as const;
+export type QueryStatus = (typeof QUERY_STATUSES)[number];
 
 export const TICKET_PRIORITIES = ['low', 'normal', 'urgent'] as const;
 export type TicketPriority = (typeof TICKET_PRIORITIES)[number];

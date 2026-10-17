@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  isManager,
   ID_TYPES,
   PAYMENT_METHODS,
   type PaymentMethod,
@@ -286,7 +287,7 @@ reservations.get(
 
 reservations.get(
   '/reservations/:id',
-  desk,
+  allow('manager', 'frontdesk', 'accountant', 'auditor'),
   h((req, res) => {
     const id = Number(req.params.id);
     const r = get<{ check_in: string; check_out: string; rate: number; room_number: string | null; room_type: string; status: string }>(`${LIST_SQL} WHERE r.id = ?`, id);
@@ -372,7 +373,7 @@ reservations.post(
     let override: number | null = null;
     if (b.rate !== undefined && b.rate !== '' && b.rate !== null) {
       override = int(b, 'rate', { min: 1000, max: 5_000_000 });
-      if (user.role !== 'manager') throw new HttpError(403, 'Only a manager can change the room rate');
+      if (!isManager(user.role)) throw new HttpError(403, 'Only a manager can change the room rate');
     }
     const quote = priceStay(typeId, checkIn, checkOut, { companyId, override });
     const deposit = b.deposit ? int(b, 'deposit', { min: 1 }) : 0;
@@ -495,7 +496,7 @@ reservations.post(
       if (balance > 0 && billing.bill_to_company && billing.company_id) {
         const c = get<{ name: string; credit_limit: number }>('SELECT name, credit_limit FROM companies WHERE id = ?', billing.company_id)!;
         const owed = companyBalance(billing.company_id);
-        if (c.credit_limit && owed + balance > c.credit_limit && !(force && user.role === 'manager')) {
+        if (c.credit_limit && owed + balance > c.credit_limit && !(force && isManager(user.role))) {
           throw new HttpError(409, `${c.name} would go over its ₦${c.credit_limit.toLocaleString('en-NG')} credit limit (owes ₦${owed.toLocaleString('en-NG')}). A manager can override.`);
         }
         assertOpen(today());
@@ -503,7 +504,7 @@ reservations.post(
         audit(user.id, 'bill_to_company', 'reservation', id, { company: c.name, amount: balance });
         balance = 0;
       }
-      if (balance > 0 && !(force && user.role === 'manager')) {
+      if (balance > 0 && !(force && isManager(user.role))) {
         throw new HttpError(409, `Outstanding balance of ₦${balance.toLocaleString('en-NG')} — record payment first`);
       }
       run("UPDATE reservations SET status = 'checked_out', checked_out_at = ? WHERE id = ?", new Date().toISOString(), id);
@@ -583,7 +584,7 @@ function refundField(b: Record<string, unknown>) {
 function settleDeposit(id: number, user: SessionUser, refund: { amount: number; method: PaymentMethod }, reason: string) {
   const paid = get<{ v: number }>(`SELECT ${PAID_SQL} AS v FROM reservations r WHERE r.id = ?`, id)!.v;
   if (refund.amount > paid) throw bad(paid ? `Only ₦${paid.toLocaleString('en-NG')} was paid on this booking` : 'Nothing was paid on this booking');
-  if (refund.amount && user.role !== 'manager') throw new HttpError(403, 'Only a manager can give money back');
+  if (refund.amount && !isManager(user.role)) throw new HttpError(403, 'Only a manager can give money back');
   if (paid) assertOpen(today());
   if (refund.amount) {
     run('INSERT INTO refunds (reservation_id, amount, method, reason, date, refunded_by) VALUES (?,?,?,?,?,?)', id, refund.amount, refund.method, reason, today(), user.id);

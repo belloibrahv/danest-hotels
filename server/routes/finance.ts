@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { CHARGE_METHODS, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
+import { BOOKS, CHARGE_METHODS, isManager, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
 import { inHouse } from './inventory.ts';
 import { assertOpen, lastClosedDate } from '../days.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
+import { csv } from '../csv.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, date, daysBetween, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -13,7 +14,7 @@ export const finance = Router();
 
 finance.get(
   '/facility-income',
-  allow('manager', 'frontdesk'),
+  allow('manager', 'frontdesk', 'accountant', 'auditor'),
   h((req, res) => {
     const { from, to } = range(req);
     const rows = all(
@@ -41,7 +42,7 @@ finance.post(
     const amount = int(b, 'amount', { min: 1, max: 50_000_000 });
     const method = oneOf(b, 'method', CHARGE_METHODS);
     // Front desk records today's takings only; back-dating is a manager decision.
-    const when = user.role === 'manager' && method !== 'room' ? date(b, 'date', today()) : today();
+    const when = isManager(user.role) && method !== 'room' ? date(b, 'date', today()) : today();
     if (when > today()) throw bad('Date cannot be in the future');
     assertOpen(when);
     const reservationId = method === 'room' ? inHouse(b.reservation_id) : null;
@@ -79,7 +80,7 @@ finance.post(
 
 finance.get(
   '/expenses',
-  allow('manager'),
+  allow(...BOOKS),
   h((req, res) => {
     const { from, to } = range(req);
     const rows = all(
@@ -96,7 +97,7 @@ finance.get(
 
 finance.post(
   '/expenses',
-  allow('manager'),
+  allow('manager', 'accountant'),
   h((req, res) => {
     const user = currentUser(req);
     const b = body(req);
@@ -116,7 +117,7 @@ finance.post(
 
 finance.delete(
   '/expenses/:id',
-  allow('manager'),
+  allow('manager', 'accountant'),
   h((req, res) => {
     const id = Number(req.params.id);
     const row = get<{ date: string }>('SELECT * FROM expenses WHERE id = ?', id);
@@ -242,7 +243,7 @@ export function profitAndLoss(from: string, to: string) {
     netProfit: grossProfit - totalOperating,
     kpis: kpis(from, to),
     collections: collections(from, to),
-    stockPurchases: get<{ v: number }>('SELECT COALESCE(SUM(total),0) v FROM purchases WHERE date BETWEEN ? AND ?', from, to)!.v,
+    stockPurchases: get<{ v: number }>("SELECT COALESCE(SUM(total),0) v FROM purchases WHERE status = 'received' AND date BETWEEN ? AND ?", from, to)!.v,
     stockValue: get<{ v: number }>('SELECT COALESCE(SUM(stock * avg_cost),0) v FROM products WHERE active = 1')!.v,
   };
 }
@@ -268,7 +269,7 @@ function dailySeries(from: string, to: string) {
 
 finance.get(
   '/reports/pnl',
-  allow('manager'),
+  allow(...BOOKS),
   h((req, res) => {
     const { from, to } = range(req);
     const days = daysBetween(from, to) + 1;
@@ -283,16 +284,9 @@ finance.get(
   }),
 );
 
-const csvCell = (v: string | number) => {
-  const s = String(v);
-  // Neutralise spreadsheet formula injection and quote everything.
-  const safe = /^[=+\-@\t\r]/.test(s) && typeof v === 'string' ? `'${s}` : s;
-  return `"${safe.replace(/"/g, '""')}"`;
-};
-
 finance.get(
   '/reports/pnl.csv',
-  allow('manager'),
+  allow(...BOOKS),
   h((req, res) => {
     const { from, to } = range(req);
     const p = profitAndLoss(from, to);
@@ -305,9 +299,7 @@ finance.get(
     rows.push(['Operating expenses', 'Total operating expenses', p.totalOperating], ['', 'Net profit', p.netProfit], [], ['Memo', 'Stock purchased in period', p.stockPurchases], ['Memo', 'Closing stock value (at cost)', p.stockValue]);
     rows.push([], ['KPI', 'Room-nights sold', p.kpis.roomNightsSold], ['KPI', 'Occupancy %', Math.round(p.kpis.occupancy * 1000) / 10], ['KPI', 'ADR (average daily rate)', p.kpis.adr], ['KPI', 'RevPAR', p.kpis.revpar]);
     rows.push([], ['Collected', 'Cash', p.collections.byMethod.cash], ['Collected', 'Bank transfer', p.collections.byMethod.transfer], ['Collected', 'POS / card', p.collections.byMethod.pos], ['Collected', 'Paid online (Paystack)', p.collections.byMethod.online ?? 0], ['Collected', 'Total collected', p.collections.total]);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="danest-pnl-${from}-to-${to}.csv"`);
-    res.send('﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'));
+    csv(res, `danest-pnl-${from}-to-${to}.csv`, rows);
   }),
 );
 

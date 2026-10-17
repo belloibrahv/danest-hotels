@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { CHARGE_METHODS, PRODUCT_CATEGORIES } from '../../shared/constants.ts';
+import { BOOKS, CHARGE_METHODS, PRODUCT_CATEGORIES, hasRole } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
+import { publish } from '../live.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, bad, body, code, date, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -15,10 +16,10 @@ export function inHouse(raw: unknown): number {
   return id;
 }
 
-type Product = { id: number; name: string; price: number; avg_cost: number; stock: number; active: number };
+export type Product = { id: number; name: string; price: number; avg_cost: number; stock: number; active: number };
 
 /** Validate an array of {product_id, qty, ...} lines and merge duplicates. */
-function lines<T extends { product_id: number; qty: number }>(raw: unknown, extra: (l: Record<string, unknown>) => Omit<T, 'product_id' | 'qty'>): T[] {
+export function lines<T extends { product_id: number; qty: number }>(raw: unknown, extra: (l: Record<string, unknown>) => Omit<T, 'product_id' | 'qty'>): T[] {
   if (!Array.isArray(raw) || raw.length === 0) throw bad('Add at least one item');
   if (raw.length > 60) throw bad('Too many lines on one receipt');
   const merged = new Map<number, T>();
@@ -38,26 +39,43 @@ function lines<T extends { product_id: number; qty: number }>(raw: unknown, extr
 
 inventory.get(
   '/products',
-  allow('manager', 'bar', 'frontdesk'),
+  allow('manager', 'bar', 'frontdesk', 'accountant', 'auditor'),
   h((req, res) => {
-    const showCost = req.user?.role === 'manager';
+    const showCost = hasRole(req.user!.role, BOOKS);
     res.json(
       all(
-        `SELECT id, name, category, unit, price, ${showCost ? 'avg_cost,' : ''} stock, reorder_level, active
-           FROM products ${req.query.all === '1' && showCost ? '' : 'WHERE active = 1'} ORDER BY category, name`,
+        `SELECT p.id, p.name, p.category, p.unit, p.price, ${showCost ? 'p.avg_cost, p.supplier_id, s.name AS supplier,' : ''} p.stock, p.reorder_level, p.active,
+                p.sku, p.barcode, p.description, p.image_v
+           FROM products p LEFT JOIN suppliers s ON s.id = p.supplier_id
+          ${req.query.all === '1' && showCost ? '' : 'WHERE p.active = 1'} ORDER BY p.category, p.name`,
       ),
     );
   }),
 );
 
-function productFields(b: Record<string, unknown>) {
+export const SKU_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+export const BARCODE_RE = /^[0-9A-Za-z-]{4,32}$/;
+
+export function productFields(b: Record<string, unknown>) {
+  const supplierId = b.supplier_id ? int(b, 'supplier_id', { min: 1 }) : null;
+  if (supplierId && !get('SELECT 1 FROM suppliers WHERE id = ?', supplierId)) throw bad('Unknown supplier');
   return {
     name: str(b, 'name', { max: 80 }),
     category: oneOf(b, 'category', PRODUCT_CATEGORIES),
     unit: str(b, 'unit', { max: 20 }),
     price: int(b, 'price', { min: 0, max: 5_000_000 }),
     reorder_level: int(b, 'reorder_level', { min: 0, max: 10_000 }),
+    sku: str(b, 'sku', { max: 32, optional: true, pattern: SKU_RE }).toUpperCase() || null,
+    barcode: str(b, 'barcode', { max: 32, optional: true, pattern: BARCODE_RE }) || null,
+    description: str(b, 'description', { max: 300, optional: true }) || null,
+    supplier_id: supplierId,
   };
+}
+
+/** SKUs and barcodes identify one item each: a scanner or an import must never hit two. */
+export function assertUniqueCodes(f: { sku: string | null; barcode: string | null }, exceptId = 0) {
+  if (f.sku && get('SELECT 1 FROM products WHERE sku = ? COLLATE NOCASE AND id <> ?', f.sku, exceptId)) throw new HttpError(409, `SKU ${f.sku} is already used by another item`);
+  if (f.barcode && get('SELECT 1 FROM products WHERE barcode = ? AND id <> ?', f.barcode, exceptId)) throw new HttpError(409, `Barcode ${f.barcode} is already used by another item`);
 }
 
 inventory.post(
@@ -65,7 +83,11 @@ inventory.post(
   allow('manager'),
   h((req, res) => {
     const f = productFields(body(req));
-    const { id } = run('INSERT INTO products (name, category, unit, price, reorder_level) VALUES (?,?,?,?,?)', f.name, f.category, f.unit, f.price, f.reorder_level);
+    assertUniqueCodes(f);
+    const { id } = run(
+      'INSERT INTO products (name, category, unit, price, reorder_level, sku, barcode, description, supplier_id) VALUES (?,?,?,?,?,?,?,?,?)',
+      f.name, f.category, f.unit, f.price, f.reorder_level, f.sku, f.barcode, f.description, f.supplier_id,
+    );
     audit(currentUser(req).id, 'create', 'product', id, f);
     res.status(201).json({ id });
   }),
@@ -79,9 +101,13 @@ inventory.patch(
     const f = productFields(b);
     const active = b.active === false ? 0 : 1;
     const id = Number(req.params.id);
-    const before = get('SELECT name, price, active FROM products WHERE id = ?', id);
+    const before = get('SELECT name, price, active, sku, barcode FROM products WHERE id = ?', id);
     if (!before) throw new HttpError(404, 'Product not found');
-    run('UPDATE products SET name=?, category=?, unit=?, price=?, reorder_level=?, active=? WHERE id=?', f.name, f.category, f.unit, f.price, f.reorder_level, active, id);
+    assertUniqueCodes(f, id);
+    run(
+      'UPDATE products SET name=?, category=?, unit=?, price=?, reorder_level=?, active=?, sku=?, barcode=?, description=?, supplier_id=? WHERE id=?',
+      f.name, f.category, f.unit, f.price, f.reorder_level, active, f.sku, f.barcode, f.description, f.supplier_id, id,
+    );
     audit(currentUser(req).id, 'update', 'product', id, { before, after: { ...f, active } });
     res.json({ ok: true });
   }),
@@ -145,6 +171,7 @@ inventory.post(
       }
       return { id, receipt_no: receipt, total };
     });
+    publish('sales', 'stock', 'money', 'activity');
     res.status(201).json(sale);
   }),
 );
@@ -184,7 +211,7 @@ inventory.post(
 /** One receipt, for printing. Bar staff can reprint today's receipts only, like the till list. */
 inventory.get(
   '/sales/:id',
-  allow('manager', 'bar'),
+  allow('manager', 'bar', 'accountant', 'auditor'),
   h((req, res) => {
     const sale = get<{ id: number; date: string }>(
       `SELECT s.id, s.receipt_no, s.date, s.created_at, s.method, s.total, u.name AS staff, rm.number AS room_number, g.name AS guest_name
@@ -193,7 +220,7 @@ inventory.get(
         WHERE s.id = ?`,
       Number(req.params.id),
     );
-    if (!sale || (req.user!.role !== 'manager' && sale.date !== today())) throw new HttpError(404, 'Receipt not found');
+    if (!sale || (!hasRole(req.user!.role, BOOKS) && sale.date !== today())) throw new HttpError(404, 'Receipt not found');
     const items = all('SELECT si.qty, si.unit_price, p.name FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? ORDER BY si.id', sale.id);
     res.json({ ...sale, items });
   }),
@@ -201,10 +228,10 @@ inventory.get(
 
 inventory.get(
   '/sales',
-  allow('manager', 'bar'),
+  allow('manager', 'bar', 'accountant', 'auditor'),
   h((req, res) => {
-    // Bar staff see today's till only; managers can look back.
-    const { from, to } = req.user?.role === 'manager' ? range(req) : { from: today(), to: today() };
+    // Bar staff see today's till only; managers and the books can look back.
+    const { from, to } = hasRole(req.user!.role, BOOKS) ? range(req) : { from: today(), to: today() };
     const sales = all<{ id: number }>(
       `SELECT s.id, s.receipt_no, s.date, s.created_at, s.method, s.total, u.name AS staff, rm.number AS room_number
          FROM sales s LEFT JOIN users u ON u.id = s.staff_id
@@ -231,61 +258,5 @@ inventory.get(
       to,
     );
     res.json({ from, to, summary, sales: sales.map((s) => ({ ...s, items: items.filter((i) => i.sale_id === s.id) })) });
-  }),
-);
-
-// ---------- purchases: restocking drinks & confectionery ----------
-
-inventory.get(
-  '/purchases',
-  allow('manager'),
-  h((req, res) => {
-    const { from, to } = range(req);
-    const purchases = all<{ id: number }>(
-      `SELECT p.id, p.ref, p.supplier, p.date, p.total, p.notes, u.name AS recorded_by
-         FROM purchases p LEFT JOIN users u ON u.id = p.recorded_by
-        WHERE p.date BETWEEN ? AND ? ORDER BY p.date DESC, p.id DESC`,
-      from,
-      to,
-    );
-    const items = purchases.length
-      ? all<{ purchase_id: number }>(
-          `SELECT pi.purchase_id, pi.qty, pi.unit_cost, pr.name FROM purchase_items pi JOIN products pr ON pr.id = pi.product_id
-            WHERE pi.purchase_id IN (${purchases.map(() => '?').join(',')})`,
-          ...purchases.map((p) => p.id),
-        )
-      : [];
-    res.json({ from, to, purchases: purchases.map((p) => ({ ...p, items: items.filter((i) => i.purchase_id === p.id) })) });
-  }),
-);
-
-inventory.post(
-  '/purchases',
-  allow('manager'),
-  h((req, res) => {
-    const user = currentUser(req);
-    const b = body(req);
-    const supplier = str(b, 'supplier', { max: 120 });
-    const when = date(b, 'date', today());
-    if (when > today()) throw bad('Purchase date cannot be in the future');
-    const notes = str(b, 'notes', { max: 300, optional: true });
-    const items = lines<{ product_id: number; qty: number; unit_cost: number }>(b.items, (l) => ({ unit_cost: int(l, 'unit_cost', { min: 0, max: 5_000_000 }) }));
-    const result = tx(() => {
-      assertOpen(when);
-      const total = items.reduce((s, l) => s + l.qty * l.unit_cost, 0);
-      const ref = code('PO');
-      const { id } = run('INSERT INTO purchases (ref, supplier, date, total, notes, recorded_by) VALUES (?,?,?,?,?,?)', ref, supplier, when, total, notes || null, user.id);
-      for (const l of items) {
-        const p = get<Product>('SELECT * FROM products WHERE id = ?', l.product_id);
-        if (!p) throw bad('Unknown product in purchase');
-        // Weighted average cost keeps cost-of-sales honest when supplier prices move.
-        const avg = Math.round((p.stock * p.avg_cost + l.qty * l.unit_cost) / (p.stock + l.qty));
-        run('UPDATE products SET stock = stock + ?, avg_cost = ? WHERE id = ?', l.qty, avg, l.product_id);
-        run('INSERT INTO purchase_items (purchase_id, product_id, qty, unit_cost) VALUES (?,?,?,?)', id, l.product_id, l.qty, l.unit_cost);
-      }
-      audit(user.id, 'create', 'purchase', id, { total, supplier });
-      return { id, ref, total };
-    });
-    res.status(201).json(result);
   }),
 );

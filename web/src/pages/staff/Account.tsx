@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 import { Copy, Download, KeyRound, Laptop, ShieldCheck, Smartphone } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import { ROLE_LABELS } from '../../../../shared/constants';
+import { BOOKS, ROLE_LABELS, hasRole } from '../../../../shared/constants';
 import { Field } from '@/components/app/form';
 import { ErrorNote, LoadingRows, PageHeader, Section } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
@@ -137,7 +137,7 @@ function TwoStep() {
         )
       ) : (
         <div className="space-y-3">
-          {user!.role === 'manager' && <p className="rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">Managers can see every naira in the business. Please turn this on.</p>}
+          {hasRole(user!.role, BOOKS) && <p className="rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">Your account can see every naira in the business. Please turn this on.</p>}
           <ErrorNote error={error} />
           <Button disabled={busy} onClick={start}><ShieldCheck /> Set up two-step sign-in</Button>
         </div>

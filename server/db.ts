@@ -465,6 +465,110 @@ const MIGRATIONS: string[] = [
   ALTER TABLE reservations ADD COLUMN cancelled_on TEXT;
   ALTER TABLE reservations ADD COLUMN retained INTEGER NOT NULL DEFAULT 0 CHECK (retained >= 0);
   `,
+
+  // 5 — owner, accountant and auditor roles; suppliers, purchase orders and bills on credit;
+  //     a product catalogue with codes and photos; monthly targets and budgets; auditor queries
+  `
+  CREATE TABLE users_v3 (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('ceo','manager','accountant','auditor','frontdesk','bar','housekeeping')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER NOT NULL DEFAULT 0,
+    last_login_at TEXT
+  );
+  INSERT INTO users_v3 SELECT id, name, username, password_hash, role, active, created_at, totp_secret, totp_enabled, totp_last_step, last_login_at FROM users;
+  DROP TABLE users;
+  ALTER TABLE users_v3 RENAME TO users;
+
+  CREATE TABLE suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    contact_name TEXT,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    terms_days INTEGER NOT NULL DEFAULT 0 CHECK (terms_days BETWEEN 0 AND 180),
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO suppliers (name) SELECT MIN(supplier) FROM purchases GROUP BY supplier COLLATE NOCASE;
+
+  -- A purchase is ordered, then received (stock and cost change only on receipt). Older purchases were received on entry.
+  -- terms: how it was paid when it arrived; 'credit' leaves a supplier bill to pay. NULL = recorded before bills were tracked (paid).
+  ALTER TABLE purchases ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id);
+  ALTER TABLE purchases ADD COLUMN status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('ordered','received','cancelled'));
+  ALTER TABLE purchases ADD COLUMN terms TEXT CHECK (terms IN ('cash','transfer','pos','credit'));
+  ALTER TABLE purchases ADD COLUMN invoice_no TEXT;
+  ALTER TABLE purchases ADD COLUMN due_date TEXT;
+  ALTER TABLE purchases ADD COLUMN received_at TEXT;
+  ALTER TABLE purchases ADD COLUMN received_by INTEGER REFERENCES users(id);
+  UPDATE purchases SET supplier_id = (SELECT s.id FROM suppliers s WHERE s.name = purchases.supplier), received_at = created_at, received_by = recorded_by;
+  CREATE INDEX idx_purchases_supplier ON purchases(supplier_id);
+
+  CREATE TABLE supplier_payments (
+    id INTEGER PRIMARY KEY,
+    purchase_id INTEGER NOT NULL REFERENCES purchases(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos')),
+    reference TEXT,
+    date TEXT NOT NULL,
+    paid_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_sp_purchase ON supplier_payments(purchase_id);
+  CREATE INDEX idx_sp_date ON supplier_payments(date);
+
+  ALTER TABLE products ADD COLUMN sku TEXT;
+  ALTER TABLE products ADD COLUMN barcode TEXT;
+  ALTER TABLE products ADD COLUMN description TEXT;
+  ALTER TABLE products ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id);
+  ALTER TABLE products ADD COLUMN image_v INTEGER NOT NULL DEFAULT 0;
+  CREATE UNIQUE INDEX idx_products_sku ON products(sku COLLATE NOCASE) WHERE sku IS NOT NULL;
+  CREATE UNIQUE INDEX idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;
+
+  CREATE TABLE product_images (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+    mime TEXT NOT NULL CHECK (mime IN ('image/webp','image/jpeg','image/png')),
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- key: a TARGET_KEYS entry (owner's monthly targets) or 'expense:<category>' (accountant's budget). month: 'YYYY-MM'.
+  CREATE TABLE targets (
+    month TEXT NOT NULL,
+    key TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount >= 0),
+    set_by INTEGER REFERENCES users(id),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (month, key)
+  );
+
+  CREATE TABLE audit_queries (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    ref_id INTEGER,
+    ref_label TEXT,
+    amount INTEGER,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','answered','closed')),
+    raised_by INTEGER NOT NULL REFERENCES users(id),
+    raised_at TEXT NOT NULL DEFAULT (datetime('now')),
+    answer TEXT,
+    answered_by INTEGER REFERENCES users(id),
+    answered_at TEXT,
+    closed_by INTEGER REFERENCES users(id),
+    closed_at TEXT
+  );
+  CREATE INDEX idx_aq_status ON audit_queries(status);
+  CREATE INDEX idx_audit_created ON audit_log(created_at);
+  `,
 ];
 
 {
@@ -518,6 +622,12 @@ export function run(sql: string, ...params: Param[]) {
   return { id: Number(r.lastInsertRowid), changes: Number(r.changes) };
 }
 
+let auditListener: ((entity: string) => void) | null = null;
+/** Called after every audited change (live updates subscribe here). */
+export const onAudit = (fn: (entity: string) => void) => {
+  auditListener = fn;
+};
+
 export function audit(userId: number | null, action: string, entity: string, entityId: number | null, detail?: unknown) {
   run(
     'INSERT INTO audit_log (user_id, action, entity, entity_id, detail) VALUES (?,?,?,?,?)',
@@ -527,4 +637,5 @@ export function audit(userId: number | null, action: string, entity: string, ent
     entityId,
     detail === undefined ? null : JSON.stringify(detail),
   );
+  auditListener?.(entity);
 }

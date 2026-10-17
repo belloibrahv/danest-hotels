@@ -1,7 +1,7 @@
 import { ChevronsUpDown, ExternalLink, KeyRound, LogOut, MonitorDown, Search } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ROLE_LABELS } from '../../../../shared/constants';
+import { ROLE_LABELS, hasRole, isManager } from '../../../../shared/constants';
 import { CommandMenu } from '@/components/app/command-menu';
 import { Crest } from '@/components/app/letterhead';
 import { ThemeMenu } from '@/components/app/theme';
@@ -28,7 +28,8 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { homeFor, useAuth } from '@/lib/auth';
+import { can, homeFor, useAuth } from '@/lib/auth';
+import { LiveBadge, LiveProvider } from '@/lib/live';
 import { useApi } from '@/lib/hooks';
 import { useInstall } from '@/lib/pwa';
 import { DeskProvider, useDesk } from './desk/Desk';
@@ -52,6 +53,10 @@ const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
   'close-day': lazy(() => import('./CloseDay')),
   reports: lazy(() => import('./Reports')),
   team: lazy(() => import('./Team')),
+  executive: lazy(() => import('./Executive')),
+  accounts: lazy(() => import('./Accounts')),
+  audit: lazy(() => import('./Audit')),
+  suppliers: lazy(() => import('./Suppliers')),
   settings: lazy(() => import('./Settings')),
 };
 const Account = lazy(() => import('./Account'));
@@ -76,16 +81,18 @@ export default function StaffApp() {
     <Suspense fallback={<LoadingRows />}>
       <Routes>
         <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
-        <Route path="invoice/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
-        <Route path="statement/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Statement /> : <Navigate to="/staff/login" replace />} />
-        <Route path="receipt/:id" element={user && (user.role === 'manager' || user.role === 'bar') ? <Receipt /> : <Navigate to="/staff/login" replace />} />
+        <Route path="invoice/:id" element={can(user, 'manager', 'frontdesk', 'accountant', 'auditor') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
+        <Route path="statement/:id" element={can(user, 'manager', 'frontdesk', 'accountant', 'auditor') ? <Statement /> : <Navigate to="/staff/login" replace />} />
+        <Route path="receipt/:id" element={can(user, 'manager', 'bar', 'accountant', 'auditor') ? <Receipt /> : <Navigate to="/staff/login" replace />} />
         <Route
           path="*"
           element={
             user ? (
-              <DeskProvider>
-                <Shell />
-              </DeskProvider>
+              <LiveProvider>
+                <DeskProvider>
+                  <Shell />
+                </DeskProvider>
+              </LiveProvider>
             ) : (
               <Navigate to="/staff/login" replace />
             )
@@ -101,9 +108,9 @@ function Shell() {
   const desk = useDesk();
   const loc = useLocation();
   const [palette, setPalette] = useState(false);
-  const isDesk = user!.role === 'manager' || user!.role === 'frontdesk';
+  const isDesk = isManager(user!.role) || user!.role === 'frontdesk';
   const pending = useApi<{ id: number }[]>(isDesk ? `/reservations?status=pending&v=${desk.version}&p=${loc.pathname}` : null);
-  const items = NAV.filter((n) => n.roles.includes(user!.role));
+  const items = NAV.filter((n) => hasRole(user!.role, n.roles));
   const current = [...items].sort((a, b) => b.to.length - a.to.length).find((n) => loc.pathname === n.to || loc.pathname.startsWith(`${n.to}/`));
 
   // "N" starts a new booking from anywhere, unless typing.
@@ -141,6 +148,7 @@ function Shell() {
             <Button variant="ghost" size="icon" className="sm:hidden" onClick={() => setPalette(true)} aria-label="Search">
               <Search />
             </Button>
+            <LiveBadge />
             <ThemeMenu />
           </div>
         </header>

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { DEFAULT_SETTINGS, FACILITIES, type HotelSettings } from '../../shared/constants.ts';
+import { DEFAULT_SETTINGS, FACILITIES, ROLES, type HotelSettings } from '../../shared/constants.ts';
 import { allow, createSession, currentUser, hashPassword, passwordProblem, rateLimit } from '../auth.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, h, int, oneOf, str } from '../lib.ts';
@@ -33,12 +33,13 @@ config.post(
     if (problem) throw bad(problem);
     const id = tx(() => {
       if (!needsSetup()) throw new HttpError(409, 'This hotel is already set up.');
-      const { id } = run("INSERT INTO users (name, username, role, password_hash) VALUES (?,?, 'manager', ?)", name, username, hashPassword(password));
+      // The person setting the hotel up is its owner: everything a manager can do, plus the executive view.
+      const { id } = run("INSERT INTO users (name, username, role, password_hash) VALUES (?,?, 'ceo', ?)", name, username, hashPassword(password));
       audit(id, 'setup_owner', 'user', id);
       return id;
     });
     createSession(req, res, id);
-    res.status(201).json({ id, name, username, role: 'manager', mfa: false });
+    res.status(201).json({ id, name, username, role: 'ceo', mfa: false });
   }),
 );
 
@@ -57,7 +58,7 @@ config.get(
 
 config.get(
   '/settings',
-  allow('manager', 'frontdesk', 'bar', 'housekeeping'),
+  allow(...ROLES),
   h((_req, res) => {
     res.json(getSettings());
   }),
@@ -303,8 +304,9 @@ config.get(
       rooms: count('SELECT COUNT(*) n FROM rooms WHERE active = 1') > 0,
       products: count('SELECT COUNT(*) n FROM products WHERE active = 1') > 0,
       facility_items: count('SELECT COUNT(*) n FROM facility_items WHERE active = 1') > 0,
-      team: count("SELECT COUNT(*) n FROM users WHERE active = 1 AND role <> 'manager'") > 0,
-      mfa: count("SELECT COUNT(*) n FROM users WHERE role = 'manager' AND active = 1 AND totp_enabled = 0") === 0,
+      team: count("SELECT COUNT(*) n FROM users WHERE active = 1 AND role NOT IN ('ceo','manager')") > 0,
+      // Everyone who can see the money signs in with two steps.
+      mfa: count("SELECT COUNT(*) n FROM users WHERE role IN ('ceo','manager','accountant','auditor') AND active = 1 AND totp_enabled = 0") === 0,
     });
   }),
 );

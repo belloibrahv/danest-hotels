@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api, fmtDate, naira, todayISO } from '@/lib/api';
+import { can, useAuth } from '@/lib/auth';
 import { useApi, useSubmit } from '@/lib/hooks';
+import { useLive } from '@/lib/live';
 import { cn } from '@/lib/utils';
 
 interface Data {
@@ -26,8 +28,11 @@ const QUICK: { category: ExpenseCategory; description: string }[] = [
 ];
 
 export default function Expenses() {
+  const { user } = useAuth();
+  // The auditor reads the expenses; the accountant and management record them.
+  const writer = can(user, 'manager', 'accountant');
   const range = useRange('month');
-  const { data, error, reload } = useApi<Data>(`/expenses?${range.qs}`);
+  const { data, error, reload } = useApi<Data>(`/expenses?${range.qs}&v=${useLive('money')}`);
   const [cat, setCat] = useState<ExpenseCategory | 'all'>('all');
   const [f, setF] = useState({ category: 'diesel' as ExpenseCategory, description: '', paid_to: '', amount: '', method: 'transfer' as PaymentMethod, date: todayISO() });
   const { busy, error: saveErr, submit } = useSubmit();
@@ -53,7 +58,7 @@ export default function Expenses() {
   return (
     <>
       <PageHeader title="Expenses" description="Salaries, diesel, NEPA, repairs and every other running cost." actions={<DateRangePicker state={range} />} />
-      <div className="grid items-start gap-6 xl:grid-cols-[1fr_380px]">
+      <div className={cn('grid items-start gap-6', writer && 'xl:grid-cols-[1fr_380px]')}>
         <div className="space-y-6">
           <Section title={<>Spent: <Money value={total} /></>} description="By category — select one to filter the list">
             {!data ? (
@@ -108,9 +113,9 @@ export default function Expenses() {
                         <Money value={r.amount} />
                       </TableCell>
                       <TableCell className="pr-5 text-right">
-                        <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => remove(r.id, r.description)} aria-label={`Delete ${r.description}`}>
+                        {writer && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" onClick={() => remove(r.id, r.description)} aria-label={`Delete ${r.description}`}>
                           <Trash2 />
-                        </Button>
+                        </Button>}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -120,7 +125,7 @@ export default function Expenses() {
           </Section>
         </div>
 
-        <Section title="Record an expense" className="xl:sticky xl:top-20">
+        {writer && <Section title="Record an expense" className="xl:sticky xl:top-20">
           <form className="grid gap-4" onSubmit={onSubmit}>
             <div className="flex flex-wrap gap-1.5">
               {QUICK.map((q) => (
@@ -148,7 +153,7 @@ export default function Expenses() {
             <ErrorNote error={saveErr} />
             <Button size="lg" disabled={busy}>{busy ? 'Saving…' : 'Record expense'}</Button>
           </form>
-        </Section>
+        </Section>}
       </div>
     </>
   );

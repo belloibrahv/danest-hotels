@@ -14,6 +14,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { api, fmtTime, naira } from '@/lib/api';
 import { can, useAuth } from '@/lib/auth';
 import { useApi, useSubmit } from '@/lib/hooks';
+import { useLive } from '@/lib/live';
 import { cn } from '@/lib/utils';
 
 export interface Product {
@@ -26,7 +27,16 @@ export interface Product {
   stock: number;
   reorder_level: number;
   active: number;
+  sku?: string | null;
+  barcode?: string | null;
+  description?: string | null;
+  supplier_id?: number | null;
+  supplier?: string | null;
+  image_v?: number;
 }
+
+/** A product's photo URL; the version makes the browser fetch a new one only when it changes. */
+export const productImage = (p: Pick<Product, 'id' | 'image_v'>) => (p.image_v ? `/api/products/${p.id}/image?v=${p.image_v}` : null);
 
 interface TillDay {
   summary: { count: number; total: number; cash: number; transfer: number; pos: number; room: number };
@@ -36,8 +46,9 @@ interface TillDay {
 /** A tap-first till: big targets, live stock, room charges for in-house guests. */
 export default function Pos() {
   const { user } = useAuth();
-  const products = useApi<Product[]>('/products');
-  const till = useApi<TillDay>('/sales');
+  // Another till, a delivery or a stock count changes what's left: the grid follows.
+  const products = useApi<Product[]>(`/products?v=${useLive('stock')}`);
+  const till = useApi<TillDay>(`/sales?v=${useLive('sales')}`);
   const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<Map<number, number>>(new Map());
@@ -47,7 +58,10 @@ export default function Pos() {
   const { busy, error, setError, submit } = useSubmit();
   const orderRef = useRef<HTMLDivElement>(null);
 
-  const list = useMemo(() => (products.data ?? []).filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(q.toLowerCase())), [products.data, cat, q]);
+  const list = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (products.data ?? []).filter((p) => (cat === 'all' || p.category === cat) && (!needle || p.name.toLowerCase().includes(needle) || p.sku?.toLowerCase() === needle || p.barcode === needle));
+  }, [products.data, cat, q]);
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
   const lines = [...cart.entries()].map(([id, qty]) => ({ p: byId.get(id)!, qty })).filter((l) => l.p);
   const total = lines.reduce((a, l) => a + l.p.price * l.qty, 0);
@@ -95,7 +109,23 @@ export default function Pos() {
             </Tabs>
             <div className="relative ml-auto w-full sm:w-64">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-8" placeholder="Find an item" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input
+                className="pl-8"
+                placeholder="Find an item or scan a barcode"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                // A barcode scanner types the code and presses Enter: add that item straight to the order.
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  const code = q.trim();
+                  const hit = products.data?.find((p) => p.barcode === code || p.sku?.toLowerCase() === code.toLowerCase()) ?? (list.length === 1 ? list[0] : undefined);
+                  if (!hit) return;
+                  e.preventDefault();
+                  if (hit.stock - (cart.get(hit.id) ?? 0) <= 0) return setError(`${hit.name} is out of stock`);
+                  add(hit);
+                  setQ('');
+                }}
+              />
             </div>
           </div>
           {!products.data ? (
@@ -120,7 +150,8 @@ export default function Pos() {
                       inCart > 0 && 'border-brand ring-1 ring-brand',
                     )}
                   >
-                    {inCart > 0 && <span className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-brand-foreground">{inCart}</span>}
+                    {inCart > 0 && <span className="absolute top-2 right-2 z-10 flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-brand-foreground">{inCart}</span>}
+                    {productImage(p) && <img src={productImage(p)!} alt="" loading="lazy" className="mb-1 aspect-[4/3] w-full rounded-md bg-muted object-cover" />}
                     <span className="pr-6 text-sm leading-tight font-medium">{p.name}</span>
                     <span className={cn('text-xs', low ? 'font-medium text-destructive' : 'text-muted-foreground')}>{p.stock === 0 ? 'Out of stock' : `${left} left`}</span>
                     <span className="mt-auto text-sm font-semibold tabular-nums">{naira(p.price)}</span>
