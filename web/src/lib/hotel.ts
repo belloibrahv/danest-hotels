@@ -6,7 +6,15 @@ export interface PublicHotel extends Omit<HotelSettings, 'bank_details'> {
   facility_items: { id: number; facility: Facility; name: string; price: number }[];
   bookable: boolean;
   online_payments: boolean;
+  images: {
+    hero: Photo | null;
+    gallery: Photo[];
+    facilities: Record<Facility, Photo | null>;
+  };
 }
+
+export type Photo = { id: number; alt: string };
+export const photoUrl = (p: Photo) => `/api/public/images/${p.id}`;
 
 let cache: Promise<PublicHotel> | null = null;
 

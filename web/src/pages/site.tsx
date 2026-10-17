@@ -1,4 +1,4 @@
-import { Menu } from 'lucide-react';
+import { Menu, Phone } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Crest } from '@/components/app/letterhead';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 
 const LINKS = [
   ['/#rooms', 'Rooms'],
-  ['/#facilities', 'Facilities'],
+  ['/#facilities', 'Pool, gym & lounge'],
   ['/#location', 'Location'],
 ];
 
@@ -40,13 +40,21 @@ export function SiteHeader() {
               {label}
             </a>
           ))}
+          {!!hotel?.reviews.length && (
+            <a href="/#reviews" className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground">Reviews</a>
+          )}
           <Link to="/booking" className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
             Manage booking
           </Link>
+          {hotel?.phone && (
+            <a href={`tel:${hotel.phone}`} className="hidden items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium lg:inline-flex">
+              <Phone className="size-3.5" /> {hotel.phone}
+            </a>
+          )}
           <ThemeMenu />
         </nav>
         <Button asChild className="ml-auto md:ml-2">
-          <a href="/#book">Book a room</a>
+          <a href="/#rooms">Book a room</a>
         </Button>
         <Sheet>
           <SheetTrigger asChild>

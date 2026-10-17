@@ -5,6 +5,7 @@ import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, h, int, oneOf, str } from '../lib.ts';
 import { checkSetupCode, getSettings, needsSetup, saveSettings } from '../settings.ts';
 import { paystackEnabled } from '../paystack.ts';
+import { publicImages } from './website.ts';
 
 /** First-run setup, hotel settings, room types, rooms and the facility price list. */
 export const config = Router();
@@ -52,7 +53,11 @@ config.get(
     const s = getSettings();
     const items = all('SELECT id, facility, name, price FROM facility_items WHERE active = 1 ORDER BY facility, price');
     const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms r JOIN room_types t ON t.id = r.room_type_id WHERE r.active = 1 AND t.active = 1')!.n;
-    res.json({ ...s, bank_details: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0 });
+    const img = publicImages();
+    res.json({
+      ...s, bank_details: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0,
+      images: { hero: img.hero, gallery: img.gallery, facilities: img.facilities },
+    });
   }),
 );
 
@@ -76,6 +81,8 @@ config.put(
     };
     const highlights = Array.isArray(b.highlights) ? b.highlights : [];
     if (highlights.length > 6) throw bad('Up to 6 highlights');
+    const reviews = Array.isArray(b.reviews) ? b.reviews : [];
+    if (reviews.length > 9) throw bad('Up to 9 reviews');
     const next: HotelSettings = {
       name: str(b, 'name', { max: 80 }),
       tagline: opt('tagline', 120),
@@ -91,6 +98,10 @@ config.put(
       highlights: highlights.map((x: unknown) => {
         const o = (x ?? {}) as Record<string, unknown>;
         return { title: str(o, 'title', { max: 40 }), text: str(o, 'text', { max: 90, optional: true }) };
+      }),
+      reviews: reviews.map((x: unknown) => {
+        const o = (x ?? {}) as Record<string, unknown>;
+        return { quote: str(o, 'quote', { min: 10, max: 400 }), name: str(o, 'name', { max: 60 }), detail: str(o, 'detail', { max: 60, optional: true }) };
       }),
     };
     saveSettings(next);

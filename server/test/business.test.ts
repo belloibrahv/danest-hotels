@@ -332,3 +332,43 @@ describe('live updates', () => {
     assert.equal((await fetch(`${base}/live`)).status, 401);
   });
 });
+
+describe('the website sells with its own photos and real reviews', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64').toString('base64');
+
+  test('only a manager uploads, only real images, only to known places', async () => {
+    assert.equal((await call('/settings/images', { cookie: desk, body: { slot: 'hero', data: png } })).status, 403);
+    assert.equal((await call('/settings/images', { cookie: manager, body: { slot: 'hero', data: Buffer.from('<svg/>').toString('base64') } })).status, 400);
+    assert.equal((await call('/settings/images', { cookie: manager, body: { slot: 'room_type:9999', data: png } })).status, 400);
+    assert.equal((await call('/settings/images', { cookie: manager, body: { slot: '../etc', data: png } })).status, 400);
+  });
+
+  test('the banner is replaced, room photos keep their order, and guests can see them without signing in', async () => {
+    const first = await call('/settings/images', { cookie: manager, body: { slot: 'hero', data: png, alt: 'The gate' } });
+    ok(first, 201);
+    const second = await call('/settings/images', { cookie: manager, body: { slot: 'hero', data: png, alt: 'The front' } });
+    ok(second, 201);
+    const hotel = (await call('/public/hotel')).json;
+    assert.deepEqual(hotel.images.hero, { id: second.json.id, alt: 'The front' }, 'one banner at a time');
+    const typeId = get<{ id: number }>('SELECT id FROM room_types WHERE active = 1 ORDER BY rate LIMIT 1')!.id;
+    const a = (await call('/settings/images', { cookie: manager, body: { slot: `room_type:${typeId}`, data: png } })).json.id;
+    const b = (await call('/settings/images', { cookie: manager, body: { slot: `room_type:${typeId}`, data: png } })).json.id;
+    ok(await call(`/settings/images/${b}`, { cookie: manager, method: 'PATCH', body: { first: true } }));
+    const room = (await call('/public/room-types')).json.find((t: any) => t.id === typeId);
+    assert.deepEqual(room.images.map((i: any) => i.id), [b, a]);
+    const img = await fetch(`${base}/public/images/${b}`);
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get('content-type'), 'image/png');
+    assert.match(img.headers.get('cache-control')!, /immutable/);
+    ok(await call(`/settings/images/${a}`, { cookie: manager, method: 'DELETE' }));
+    assert.equal((await fetch(`${base}/public/images/${a}`)).status, 404);
+  });
+
+  test('reviews are the hotel’s own words, checked and shown publicly', async () => {
+    const s = (await call('/settings', { cookie: manager })).json;
+    assert.equal((await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, reviews: [{ quote: 'Too short', name: 'X' }] } })).status, 400);
+    ok(await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, reviews: [{ quote: 'Spotless room and the power never went off.', name: 'Tolu A.', detail: 'Business trip, Lagos' }] } }));
+    assert.equal((await call('/public/hotel')).json.reviews[0].name, 'Tolu A.');
+    assert.equal((await call('/public/hotel')).json.bank_details, undefined, 'bank details stay private');
+  });
+});

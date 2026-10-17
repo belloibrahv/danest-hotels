@@ -19,6 +19,7 @@ import { publicApi } from './routes/public.ts';
 import { purchasing } from './routes/purchasing.ts';
 import { reservations } from './routes/reservations.ts';
 import { review } from './routes/review.ts';
+import { website } from './routes/website.ts';
 import { team } from './routes/team.ts';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -77,7 +78,7 @@ export function createApp() {
 
   const api = express.Router();
   // Photos and spreadsheet uploads are the only bodies allowed to be large; everything else stays small.
-  api.use(['/products/import', /^\/products\/\d+\/image$/], express.json({ limit: '2mb' }));
+  api.use(['/products/import', '/settings/images', /^\/products\/\d+\/image$/], express.json({ limit: '2mb' }));
   api.use(express.json({ limit: '50kb' }));
   api.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -92,6 +93,7 @@ export function createApp() {
   api.get('/health', (_req, res) => res.json({ ok: true }));
   api.get('/live', allow(...ROLES), stream);
   api.use('/public', publicApi);
+  api.use(website);
   api.use(team);
   api.use(reservations);
   api.use(inventory);

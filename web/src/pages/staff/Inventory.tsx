@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { api, fmtDate, fmtTime, naira, nairaShort, pct } from '@/lib/api';
 import { can, useAuth } from '@/lib/auth';
 import { download, parseCsv } from '@/lib/csv';
+import { shrinkPhoto } from '@/lib/photo';
 import { useApi, useSubmit } from '@/lib/hooks';
 import { useLive } from '@/lib/live';
 import { cn } from '@/lib/utils';
@@ -318,20 +319,6 @@ function ProductSheet({ id, products, version, onClose, onEdit, onCount, onChang
       </SheetContent>
     </Sheet>
   );
-}
-
-/** Photos are shrunk in the browser (longest side 800px) so a phone picture uploads in a moment on mobile data. */
-async function shrinkPhoto(f: File): Promise<{ data: string }> {
-  if (!f.type.startsWith('image/')) throw new Error('Choose a photo');
-  const bitmap = await createImageBitmap(f);
-  const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height));
-  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  let url = canvas.toDataURL('image/webp', 0.82);
-  // Older Safari can't write WebP and quietly returns PNG; JPEG is smaller then.
-  if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.85);
-  for (let q = 0.75; url.length > 520_000 && q > 0.3; q -= 0.15) url = canvas.toDataURL('image/jpeg', q);
-  return { data: url.slice(url.indexOf(',') + 1) };
 }
 
 function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new' | null; onClose: () => void; onSaved: () => void }) {

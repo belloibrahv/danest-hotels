@@ -6,6 +6,7 @@ import { PAID_SQL, availabilityByType, validateStay } from './reservations.ts';
 import { priceStay, saveNights } from '../pricing.ts';
 import { paystackEnabled } from '../paystack.ts';
 import { getSettings } from '../settings.ts';
+import { publicImages } from './website.ts';
 
 /** Unauthenticated endpoints used by the guest website. Read-mostly; the one write is rate limited. */
 export const publicApi = Router();
@@ -21,10 +22,11 @@ publicApi.get(
         WHERE t.active = 1 AND EXISTS (SELECT 1 FROM rooms r WHERE r.room_type_id = t.id AND r.active = 1) ORDER BY rate`,
     );
     // Price the exact stay, so weekend and seasonal rates show before the guest books.
+    const img = publicImages();
     res.json(
       types.map((t) => {
         const q = priceStay(t.id, checkIn, checkOut);
-        return { ...t, amenities: JSON.parse(t.amenities), available: free.get(t.id) ?? 0, total: q.total, average: q.average, rate_note: q.note };
+        return { ...t, amenities: JSON.parse(t.amenities), available: free.get(t.id) ?? 0, total: q.total, average: q.average, rate_note: q.note, images: img.rooms(t.id) };
       }),
     );
   }),

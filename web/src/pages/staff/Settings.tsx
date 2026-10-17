@@ -1,4 +1,4 @@
-import { BedDouble, CreditCard, MessageCircle, Plus, Trash2 } from 'lucide-react';
+import { BedDouble, CreditCard, ImageIcon, MessageCircle, Plus, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, naira } from '@/lib/api';
 import { useApi, useSubmit } from '@/lib/hooks';
+import { shrinkPhoto } from '@/lib/photo';
 import { cn } from '@/lib/utils';
 
 export default function Settings() {
@@ -27,11 +28,13 @@ export default function Settings() {
         <TabsList className="mb-6 h-9 flex-wrap">
           <TabsTrigger value="hotel">Hotel details</TabsTrigger>
           <TabsTrigger value="rooms">Rooms & base rates</TabsTrigger>
+          <TabsTrigger value="photos">Website photos</TabsTrigger>
           <TabsTrigger value="facilities">Gym, pool & lounge prices</TabsTrigger>
           <TabsTrigger value="payments">Payments & messages</TabsTrigger>
         </TabsList>
         <TabsContent value="hotel"><HotelForm /></TabsContent>
         <TabsContent value="rooms"><RoomsSettings /></TabsContent>
+        <TabsContent value="photos"><WebsitePhotos /></TabsContent>
         <TabsContent value="facilities"><FacilityPrices /></TabsContent>
         <TabsContent value="payments"><Integrations /></TabsContent>
       </Tabs>
@@ -102,6 +105,31 @@ function HotelForm() {
               );
             })}
           </div>
+        </Section>
+        <Section
+          title="Guest reviews"
+          description="What real guests have said (from Google, WhatsApp or the guest book). Shown on the website. Leave empty rather than invent one."
+          action={f.reviews.length < 9 && <Button type="button" variant="ghost" size="sm" onClick={() => set('reviews', [...f.reviews, { quote: '', name: '', detail: '' }])}><Plus /> Add</Button>}
+        >
+          {f.reviews.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No reviews yet. The reviews section stays hidden on the website until you add one.</p>
+          ) : (
+            <div className="grid gap-4">
+              {f.reviews.map((r, i) => {
+                const upd = (patch: Partial<typeof r>) => set('reviews', f.reviews.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                return (
+                  <div key={i} className="grid gap-2 rounded-lg border p-3">
+                    <Textarea value={r.quote} onChange={(e) => upd({ quote: e.target.value })} rows={2} maxLength={400} placeholder="The room was spotless and the power never went off…" aria-label={`Review ${i + 1}`} required minLength={10} />
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <Input value={r.name} onChange={(e) => upd({ name: e.target.value })} maxLength={60} placeholder="Guest's name" aria-label="Name" required />
+                      <Input value={r.detail} onChange={(e) => upd({ detail: e.target.value })} maxLength={60} placeholder="Business trip, Lagos" aria-label="Detail" />
+                      <Button type="button" variant="ghost" size="icon" aria-label="Remove review" onClick={() => set('reviews', f.reviews.filter((_, j) => j !== i))}><Trash2 /></Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Section>
         <ErrorNote error={error} />
         <Button size="lg" className="w-full" disabled={busy}>{busy ? 'Saving…' : 'Save hotel details'}</Button>
@@ -400,5 +428,100 @@ function Integrations() {
         </div>
       </Section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+interface SiteImage { id: number; slot: string; alt: string }
+
+/** The pictures the guest website sells with. Each place shows what's there and takes more. */
+function WebsitePhotos() {
+  const images = useApi<SiteImage[]>('/settings/images');
+  const types = useApi<RoomType[]>('/settings/room-types');
+  if (!images.data || !types.data) return <LoadingRows />;
+  const inSlot = (slot: string) => images.data!.filter((i) => i.slot === slot);
+  const places = [
+    { slot: 'hero', title: 'Main banner', hint: 'The first thing visitors see. A wide, bright photo of the building or your best room. Landscape works best.', max: 1, wide: true },
+    ...types.data.filter((t) => t.active).map((t) => ({ slot: `room_type:${t.id}`, title: t.name, hint: 'Up to 6 photos: the bed, the bathroom, the view. The first one leads the room card.', max: 6, wide: false })),
+    ...FACILITIES.map((f) => ({ slot: `facility:${f}`, title: FACILITY_LABELS[f], hint: 'One photo for this facility.', max: 1, wide: false })),
+    { slot: 'gallery', title: 'Gallery', hint: 'Up to 12 more: reception, the compound, breakfast, an event in the lounge.', max: 12, wide: false },
+  ];
+  return (
+    <div className="space-y-6">
+      <p className="max-w-2xl text-sm text-muted-foreground">
+        Real photos sell rooms. Photos are shrunk on your device before they upload, so taking them on a phone is fine. Until a place has a photo, the website shows a tasteful placeholder.
+      </p>
+      {places.map((p) => (
+        <PhotoPlace key={p.slot} {...p} photos={inSlot(p.slot)} onChange={images.reload} />
+      ))}
+    </div>
+  );
+}
+
+function PhotoPlace({ slot, title, hint, max, wide, photos, onChange }: { slot: string; title: string; hint: string; max: number; wide: boolean; photos: SiteImage[]; onChange: () => void }) {
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const upload = async (files: FileList) => {
+    setBusy(true);
+    try {
+      for (const f of [...files].slice(0, max === 1 ? 1 : max - photos.length)) {
+        const photo = await shrinkPhoto(f, { maxSide: wide ? 1920 : 1400, maxBytes: 850_000 });
+        await api('/settings/images', { body: { slot, ...photo, alt: '' } });
+      }
+      toast.success('Photo saved', { description: 'It is on the website now.' });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the photo');
+    } finally {
+      setBusy(false);
+      onChange();
+    }
+  };
+  const full = max > 1 && photos.length >= max;
+  return (
+    <Section
+      title={<span className="flex items-center gap-2"><ImageIcon className="size-4" /> {title}</span>}
+      description={hint}
+      action={
+        !full && (
+          <Button asChild size="sm" variant="outline" disabled={busy}>
+            <label className="cursor-pointer">
+              <Upload /> {busy ? 'Uploading…' : max === 1 && photos.length ? 'Replace' : 'Add photo'}
+              <input type="file" accept="image/*" multiple={max > 1} className="sr-only" disabled={busy} onChange={(e) => (e.target.files?.length && upload(e.target.files), (e.target.value = ''))} />
+            </label>
+          </Button>
+        )
+      }
+    >
+      {photos.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No photo yet.</p>
+      ) : (
+        <div className={cn('grid gap-3', wide ? 'grid-cols-1 sm:max-w-xl' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6')}>
+          {photos.map((p, i) => (
+            <figure key={p.id} className="group relative overflow-hidden rounded-lg border bg-muted">
+              <img src={`/api/public/images/${p.id}`} alt={p.alt} className={cn('w-full object-cover', wide ? 'aspect-[16/7]' : 'aspect-[4/3]')} loading="lazy" />
+              {i === 0 && max > 1 && <span className="absolute top-1.5 left-1.5 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-semibold">Shown first</span>}
+              <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                {i > 0 && (
+                  <Button type="button" size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => api(`/settings/images/${p.id}`, { method: 'PATCH', body: { first: true } }).then(onChange)}>
+                    Show first
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  className="size-7"
+                  aria-label="Remove photo"
+                  onClick={async () => (await confirm({ title: 'Remove this photo from the website?', confirmLabel: 'Remove', destructive: true })) && api(`/settings/images/${p.id}`, { method: 'DELETE' }).then(onChange)}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </figure>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }

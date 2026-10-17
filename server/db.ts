@@ -569,6 +569,20 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_aq_status ON audit_queries(status);
   CREATE INDEX idx_audit_created ON audit_log(created_at);
   `,
+
+  // 6 — the website's own photos: main banner, gallery, each room type and each facility
+  `
+  CREATE TABLE site_images (
+    id INTEGER PRIMARY KEY,
+    slot TEXT NOT NULL,
+    mime TEXT NOT NULL CHECK (mime IN ('image/webp','image/jpeg','image/png')),
+    data BLOB NOT NULL,
+    alt TEXT NOT NULL DEFAULT '',
+    sort INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_site_images_slot ON site_images(slot, sort, id);
+  `,
 ];
 
 {

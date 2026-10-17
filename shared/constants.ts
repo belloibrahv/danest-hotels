@@ -155,6 +155,8 @@ export interface HotelSettings {
   bank_details: string;
   invoice_note: string;
   highlights: { title: string; text: string }[];
+  /** Real guest reviews the owner has collected (Google, WhatsApp, the guest book). Never invented. */
+  reviews: { quote: string; name: string; detail: string }[];
   /** Share of the stay a guest can pay online when booking (0 = online payment off). */
   deposit_percent: number;
 }
@@ -171,6 +173,7 @@ export const DEFAULT_SETTINGS: HotelSettings = {
   bank_details: '',
   invoice_note: 'Thank you for staying with us.',
   highlights: [],
+  reviews: [],
   deposit_percent: 0,
 };
 

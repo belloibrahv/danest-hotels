@@ -5,6 +5,7 @@ import { assertOpen } from '../days.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, code, h, isDate, oneOf, str, today } from '../lib.ts';
 import { csv } from '../csv.ts';
+import { readPhoto } from '../images.ts';
 import { BARCODE_RE, SKU_RE } from './inventory.ts';
 
 /** The product catalogue around the till: photos, bulk upload and export, stock cards and what is selling. */
@@ -14,23 +15,13 @@ const books = allow(...BOOKS);
 // ---------- photos ----------
 
 const MAX_IMAGE = 400 * 1024;
-const MAGIC: [string, (b: Buffer) => boolean][] = [
-  ['image/png', (b) => b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))],
-  ['image/jpeg', (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
-  ['image/webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
-];
 
 catalog.put(
   '/products/:id/image',
   allow('manager'),
   h((req, res) => {
     const id = Number(req.params.id);
-    const b = body(req);
-    if (typeof b.data !== 'string' || b.data.length > Math.ceil((MAX_IMAGE * 4) / 3) + 4) throw bad('The photo is too large. Use one under 400 KB.');
-    const bytes = Buffer.from(b.data, 'base64');
-    // The type is read from the file itself, never trusted from the browser.
-    const mime = MAGIC.find(([, test]) => bytes.length > 12 && test(bytes))?.[0];
-    if (!mime) throw bad('That file is not a PNG, JPEG or WebP photo');
+    const { bytes, mime } = readPhoto(body(req).data, MAX_IMAGE);
     if (!get('SELECT 1 FROM products WHERE id = ?', id)) throw new HttpError(404, 'Product not found');
     tx(() => {
       run("INSERT OR REPLACE INTO product_images (product_id, mime, data, updated_at) VALUES (?,?,?, datetime('now'))", id, mime, bytes);
