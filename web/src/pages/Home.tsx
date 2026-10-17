@@ -134,7 +134,7 @@ export default function Home() {
       </section>
 
       {/* rooms */}
-      <section id="rooms" className="mx-auto max-w-6xl scroll-mt-16 px-4 py-20 sm:px-6">
+      <section id="rooms" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
         <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
           <div>
             <Eyebrow>Rooms & suites</Eyebrow>
@@ -194,7 +194,7 @@ export default function Home() {
       </section>
 
       {/* facilities */}
-      <section id="facilities" className="scroll-mt-16 border-y bg-muted/40">
+      <section id="facilities" className="scroll-mt-20 border-y bg-muted/40">
         <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
           <Eyebrow>Facilities</Eyebrow>
           <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight">Everything for a good stay, inside the gate.</h2>
@@ -222,7 +222,7 @@ export default function Home() {
       {hotel?.bookable !== false && <Booking types={types ?? []} hotel={hotel} chosen={chosen} setChosen={setChosen} checkIn={checkIn} checkOut={checkOut} adults={adults} setCheckIn={setIn} setCheckOut={setCheckOut} setAdults={setAdults} />}
 
       {/* location */}
-      <section id="location" className="scroll-mt-16 border-t">
+      <section id="location" className="scroll-mt-20 border-t">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2">
           <div>
             <Eyebrow>Location</Eyebrow>
@@ -307,7 +307,7 @@ function Booking(p: {
     });
 
   return (
-    <section id="book" className="scroll-mt-16 border-t">
+    <section id="book" className="scroll-mt-20 border-t">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[1fr_1.2fr]">
         <div>
           <Eyebrow>Book direct</Eyebrow>

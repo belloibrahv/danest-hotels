@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, BedDouble, CalendarClock, Coins, LineChart, LogOut, Moon, Package, Plus, Receipt, SprayCan, UserPlus, Wallet, Wrench } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import { EmptyState, LoadingRows, Money, PageHeader, Section, StatCard, ErrorNote } from '@/components/app/page';
 import { SetupChecklist } from '@/components/app/setup-checklist';
@@ -96,6 +96,37 @@ export function KpiTriplet({ k, previous }: { k: Kpis; previous?: Kpis }) {
   );
 }
 
+/** How full the hotel was each night over the last 30 days. One series, so no legend: the title names it. */
+const occupancyChart = { occupancy: { label: 'Occupancy', color: 'var(--chart-1)' } } satisfies ChartConfig;
+
+function OccupancyTrend({ days, rooms }: { days: NonNullable<Dash['last30']>; rooms: number }) {
+  if (!rooms || days.length < 2) return null;
+  const rows = days.map((d) => ({
+    occupancy: Math.round((d.occupied / rooms) * 100),
+    label: new Date(`${d.date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }),
+  }));
+  return (
+    <div className="border-t">
+      <div className="px-5 pt-4 text-xs font-medium text-muted-foreground">Rooms filled each night, last 30 days</div>
+      <ChartContainer config={occupancyChart} className="aspect-auto h-40 w-full px-2 pb-2">
+        <AreaChart data={rows} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="occ-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-occupancy)" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="var(--color-occupancy)" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} fontSize={11} />
+          <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(v) => `${v}%`} tickLine={false} axisLine={false} width={40} fontSize={11} />
+          <ChartTooltip cursor={{ stroke: 'var(--border)' }} content={<ChartTooltipContent indicator="line" formatter={(v) => <span className="tabular-nums">{v}% of rooms</span>} />} />
+          <Area dataKey="occupancy" type="monotone" stroke="var(--color-occupancy)" strokeWidth={2} fill="url(#occ-fill)" activeDot={{ r: 4 }} />
+        </AreaChart>
+      </ChartContainer>
+    </div>
+  );
+}
+
 function Forecast({ data, rooms }: { data: Dash['ops']['forecast']; rooms: number }) {
   if (!rooms) return <EmptyState icon={CalendarClock} title="No rooms yet">Add your rooms in Settings and bookings will show here.</EmptyState>;
   const peak = data.reduce((a, d) => (d.booked > a.booked ? d : a), data[0]);
@@ -103,7 +134,7 @@ function Forecast({ data, rooms }: { data: Dash['ops']['forecast']; rooms: numbe
   return (
     <>
       <p className="px-5 pt-4 text-xs text-muted-foreground">{peak.booked ? `Busiest: ${fmtDateLong(peak.date)} at ${pct(peak.booked / rooms)}` : 'Nothing booked yet for the next two weeks'}</p>
-      <ChartContainer config={forecastChart} className="aspect-auto h-56 w-full px-2 pb-2">
+      <ChartContainer config={forecastChart} className="aspect-auto h-56 w-full px-2 pb-2 xl:h-72">
         <BarChart data={rows} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval={1} fontSize={11} />
@@ -276,6 +307,7 @@ export default function Dashboard() {
       <div className="mb-6 grid gap-6 xl:grid-cols-2">
         <Section title="This month" description={`${fmtDate(month.from)} – ${fmtDate(month.to)} · the numbers investors ask for`} flush>
           <KpiTriplet k={month.kpis} />
+          <OccupancyTrend days={last30} rooms={ops.rooms.total} />
         </Section>
         <Section title="Next 14 days" description="Rooms already booked" flush>
           <Forecast data={ops.forecast} rooms={ops.rooms.total} />
@@ -284,7 +316,7 @@ export default function Dashboard() {
 
       <div className="mb-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Section title="Revenue, last 30 days" description={`Daily average ${naira(avg)}`} flush>
-          <ChartContainer config={revenueChart} className="aspect-auto h-72 w-full px-2 pt-4 pb-2">
+          <ChartContainer config={revenueChart} className="aspect-auto h-80 w-full px-2 pt-4 pb-2">
             <BarChart data={series} margin={{ top: 4, right: 12, left: 4, bottom: 0 }}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} fontSize={11} />
@@ -295,9 +327,9 @@ export default function Dashboard() {
                   <span className="tabular-nums">{naira(Number(v))}</span>
                 </div>
               )} />} />
-              <Bar dataKey="rooms" stackId="a" fill="var(--color-rooms)" />
-              <Bar dataKey="bar" stackId="a" fill="var(--color-bar)" />
-              <Bar dataKey="facilities" stackId="a" fill="var(--color-facilities)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="rooms" stackId="a" fill="var(--color-rooms)" stroke="var(--card)" strokeWidth={1} />
+              <Bar dataKey="bar" stackId="a" fill="var(--color-bar)" stroke="var(--card)" strokeWidth={1} />
+              <Bar dataKey="facilities" stackId="a" fill="var(--color-facilities)" stroke="var(--card)" strokeWidth={1} radius={[3, 3, 0, 0]} />
               <ChartLegend content={<ChartLegendContent />} />
             </BarChart>
           </ChartContainer>
@@ -308,7 +340,7 @@ export default function Dashboard() {
               <div key={g} className="space-y-3">
                 <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{g === 'core' ? 'Main business' : 'Other income'}</div>
                 {month.revenue
-                  .filter((r) => r.group === g)
+                  .filter((r) => r.group === g && (r.amount > 0 || r.key !== 'cancellations'))
                   .map((r) => (
                     <div key={r.key} className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
                       <span>{r.label}</span>

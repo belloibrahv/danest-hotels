@@ -1,13 +1,18 @@
 /**
- * DEMO DATA — for local development and the automated tests only. Never for a live hotel.
- * ~4 months of invented trading for a 20-room hotel, ending today, with invented guests
- * and staff. Deterministic (seeded PRNG) so every run tells the same story.
+ * TEST DATA — ~4 months of trading for a 20-room hotel, ending today: staff accounts, rooms and
+ * rates, guests, bookings (past, in house and upcoming, with rooms still free to book), bar and
+ * facility sales, purchases and expenses. Deterministic (seeded PRNG) so every run is the same.
  *
- *   npm run seed:demo        # wipe the local database and load it
+ *   npm run seed:demo                                   # local database, shared password
+ *   node server/seed.ts --production [--reset]          # the live database (run on the server)
  *
- * Refuses to run when NODE_ENV=production.
+ * On a production database it needs --production, refuses to replace existing accounts without
+ * --reset, gives every account its own random password (printed once), and leaves the hotel's
+ * public phone and email blank rather than inventing them.
  */
+import { randomBytes } from 'node:crypto';
 import { hashPassword } from './auth.ts';
+import { needsSetup } from './settings.ts';
 import { all, db, get, run, tx } from './db.ts';
 import { addDays, today } from './lib.ts';
 
@@ -89,7 +94,7 @@ function prng(seed: number) {
   };
 }
 
-export function seed() {
+export function seed(opts: { live?: boolean } = {}) {
   const rand = prng(20261016);
   const between = (a: number, b: number) => Math.floor(a + rand() * (b - a + 1));
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
@@ -109,17 +114,19 @@ export function seed() {
   const T = today();
   const START = addDays(T, -120);
 
-  const pwHash = hashPassword(DEMO_PASSWORD);
+  // Locally everyone shares the documented password; on a live database each account gets its own.
+  const passwords = DEMO_USERS.map(() => (opts.live ? randomBytes(12).toString('base64url') : DEMO_PASSWORD));
 
   tx(() => {
     for (const t of ['messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
-    const userIds = DEMO_USERS.map((u) => run('INSERT INTO users (name, username, role, password_hash) VALUES (?,?,?,?)', u.name, u.username, u.role, pwHash).id);
+    const userIds = DEMO_USERS.map((u, i) => run('INSERT INTO users (name, username, role, password_hash) VALUES (?,?,?,?)', u.name, u.username, u.role, hashPassword(passwords[i])).id);
     const [managerId, deskId, barId, desk2Id] = userIds;
 
-    for (const [k, v] of Object.entries({ phone: '0803 000 0000', email: 'frontdesk@example.com', highlights: [
+    // The public website never shows an invented phone number or email: on a live database these stay for the owner to fill in.
+    for (const [k, v] of Object.entries({ ...(!opts.live && { phone: '0803 000 0000', email: 'frontdesk@example.com' }), highlights: [
       { title: 'Gated & secure', text: 'Guarded around the clock' },
       { title: 'Power that stays on', text: 'Generator backup, day and night' },
       { title: 'Free Wi-Fi', text: 'In every room and the lounge' },
@@ -213,6 +220,38 @@ export function seed() {
         d = addDays(checkOut, status === 'checked_in' ? between(1, 3) : chance(0.2) ? 0 : between(1, 4));
       }
     }
+    // ----- company accounts: local firms that put their staff up on account -----
+    // A separate random sequence, so the rest of the data (which the tests rely on) is unchanged.
+    const crand = prng(4242);
+    const companyIds = (
+      [
+        ['Westgate Engineering Services Ltd', 'Mrs. Adunni Coker', 'Ring Road, Ibadan', 10, 1_000_000],
+        ['Bodija Agro Ventures Ltd', 'Mr. Sola Ajayi', 'Bodija Market Road, Ibadan', 5, 500_000],
+        ['Crestline Pharmaceuticals Ltd', 'Accounts Department', 'Oluyole Estate, Ibadan', 15, 2_000_000],
+      ] as const
+    ).map(([name, contact, address, discount, limit]) =>
+      run('INSERT INTO companies (name, contact_name, address, discount_pct, credit_limit) VALUES (?,?,?,?,?)', name, contact, address, discount, limit).id,
+    );
+    for (const x of stays) {
+      if (crand() >= 0.12) continue;
+      const companyId = companyIds[Math.floor(crand() * companyIds.length)];
+      run('UPDATE reservations SET company_id = ?, bill_to_company = 1 WHERE id = ?', companyId, x.id);
+      if (x.status === 'checked_out') {
+        // The guest didn't pay at the desk: the room bill moved to the company's account at check-out.
+        const total = get<{ total: number }>('SELECT total FROM reservations WHERE id = ?', x.id)!.total;
+        run('DELETE FROM payments WHERE reservation_id = ?', x.id);
+        run("INSERT INTO payments (reservation_id, amount, method, date, received_by) VALUES (?,?, 'company', ?, ?)", x.id, total, x.checkOut, deskId);
+      }
+    }
+    // Companies settle what was billed more than two weeks ago, by bank transfer.
+    for (const c of companyIds) {
+      const due = get<{ v: number }>(
+        "SELECT COALESCE(SUM(p.amount), 0) v FROM payments p JOIN reservations r ON r.id = p.reservation_id WHERE p.method = 'company' AND r.company_id = ? AND p.date < ?",
+        c, addDays(T, -14),
+      )!.v;
+      if (due > 0) run("INSERT INTO company_payments (company_id, amount, method, reference, date, received_by) VALUES (?,?, 'transfer', ?, ?, ?)", c, due, `TRF-${String(c).padStart(4, '0')}`, addDays(T, -1 - Math.floor(crand() * 9)), managerId);
+    }
+
     run("UPDATE rooms SET status = 'maintenance' WHERE id = ?", maintenanceRoom.id);
     // Two rooms turned over this morning are still being cleaned.
     for (const r of rooms.filter((r) => r !== maintenanceRoom && !get("SELECT 1 FROM reservations WHERE room_id = ? AND status = 'checked_in'", r.id)).slice(0, 2)) {
@@ -370,14 +409,26 @@ export function seed() {
     run("INSERT INTO audit_log (user_id, action, entity, detail) VALUES (?, 'seed', 'system', ?)", managerId, JSON.stringify({ from: START, to: T }));
   });
 
-  return { password: DEMO_PASSWORD, users: DEMO_USERS.map((u) => u.username) };
+  return { password: DEMO_PASSWORD, users: DEMO_USERS.map((u, i) => ({ ...u, password: passwords[i] })) };
 }
 
 if (import.meta.main || process.argv[1]?.endsWith('seed.ts')) {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('Refusing to load demo data into a production database.');
+  const args = process.argv.slice(2);
+  const live = process.env.NODE_ENV === 'production';
+  if (live && !args.includes('--production')) {
+    console.error('This is a production database. To load the test data into it, run with --production.');
     process.exit(1);
   }
-  const r = seed();
-  console.log(`Demo data loaded. Sign in as ${r.users.join(' / ')} with password ${r.password}`);
+  if (!needsSetup() && !args.includes('--reset')) {
+    console.error('This database already has accounts. Add --reset to wipe everything in it and load the test data.');
+    process.exit(1);
+  }
+  const r = seed({ live });
+  if (live) {
+    console.log('Test data loaded. Each account has its own password, shown only now. Share each one privately:');
+    for (const u of r.users) console.log(`  ${u.role.padEnd(13)} ${u.username.padEnd(13)} ${u.password}   (${u.name})`);
+    console.log('Ask everyone to change their password under "Password & security" after signing in.');
+  } else {
+    console.log(`Demo data loaded. Sign in as ${r.users.map((u) => u.username).join(' / ')} with password ${r.password}`);
+  }
 }

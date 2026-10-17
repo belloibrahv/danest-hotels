@@ -1,7 +1,9 @@
 import { Download, Printer } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import type { HotelSettings } from '../../../../shared/constants';
 import { DateRangePicker, useRange } from '@/components/app/date-range';
+import { Letterhead } from '@/components/app/letterhead';
 import { ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
@@ -35,27 +37,35 @@ const Heading = ({ children }: { children: ReactNode }) => <div className="px-5 
 export default function Reports() {
   const range = useRange('month');
   const { data: p, error } = useApi<Report>(`/reports/pnl?${range.qs}`);
+  const { data: hotel } = useApi<HotelSettings>('/settings');
   const d = (now: number, before: number) => (before ? (now - before) / Math.abs(before) : null);
 
   return (
     <>
-      <PageHeader
-        title="Profit & loss"
-        description="Everything the hotel earned, less everything it cost, for any period."
-        actions={
-          <>
-            <DateRangePicker state={range} />
-            <Button variant="outline" asChild>
-              <a href={`/api/reports/pnl.csv?${range.qs}`} download>
-                <Download /> Excel
-              </a>
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => print()} aria-label="Print">
-              <Printer />
-            </Button>
-          </>
-        }
-      />
+      {hotel && p && (
+        <div className="mb-6 hidden print:block">
+          <Letterhead hotel={hotel} title="Profit & loss" meta={<div>{fmtDateLong(p.from)} – {fmtDateLong(p.to)}</div>} />
+        </div>
+      )}
+      <div className="print:hidden">
+        <PageHeader
+          title="Profit & loss"
+          description="Everything the hotel earned, less everything it cost, for any period."
+          actions={
+            <>
+              <DateRangePicker state={range} />
+              <Button variant="outline" asChild>
+                <a href={`/api/reports/pnl.csv?${range.qs}`} download>
+                  <Download /> Excel
+                </a>
+              </Button>
+              <Button variant="outline" size="icon" onClick={() => print()} aria-label="Print">
+                <Printer />
+              </Button>
+            </>
+          }
+        />
+      </div>
       <ErrorNote error={error} />
       {!p ? (
         <LoadingRows rows={10} />

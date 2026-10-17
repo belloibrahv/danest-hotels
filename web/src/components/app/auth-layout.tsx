@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Crest } from './letterhead';
 import { ThemeMenu } from './theme';
 
 /** Split layout for sign-in and setup: the form, and a calm brand panel with the building. */
@@ -8,7 +9,7 @@ export function AuthLayout({ children, aside }: { children: ReactNode; aside?: R
       <div className="flex flex-col p-6 md:p-10">
         <div className="flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5">
-            <img src="/brand/crest-128.png" alt="" className="size-8 rounded-full ring-1 ring-border" />
+            <Crest className="size-11" />
             <span className="text-sm font-semibold">Danest Hotel &amp; Suites</span>
           </a>
           <ThemeMenu className="-mr-2" />

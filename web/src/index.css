@@ -119,6 +119,20 @@
   }
 }
 
+/* Printing a staff screen gives the document, not the app around it. */
+@media print {
+  [data-slot='sidebar-gap'],
+  [data-slot='sidebar-container'],
+  [data-app-chrome] {
+    display: none !important;
+  }
+  [data-slot='sidebar-inset'] {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
 @theme inline {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;

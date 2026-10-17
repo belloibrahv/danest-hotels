@@ -1,4 +1,4 @@
-import { Building2, Pencil, Plus, Printer, Wallet } from 'lucide-react';
+import { BedDouble, Building2, Pencil, Plus, Printer, Wallet } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { PAYMENT_LABELS, PAYMENT_METHODS, type PaymentMethod, type ReservationStatus } from '../../../../shared/constants';
@@ -19,7 +19,7 @@ import { useApi, useSubmit } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import { useDesk } from './desk/Desk';
 
-interface Company {
+export interface Company {
   id: number;
   name: string;
   contact_name: string | null;
@@ -34,7 +34,7 @@ interface Company {
   stays: number;
   in_house: number;
 }
-interface Statement extends Company {
+export interface CompanyStatement extends Company {
   charges: { id: number; date: string; amount: number; reservation_id: number; code: string; check_in: string; check_out: string; guest_name: string }[];
   payments: { id: number; date: string; amount: number; method: PaymentMethod; reference: string | null; received_by: string | null }[];
   open_stays: { id: number; code: string; status: ReservationStatus; check_in: string; check_out: string; guest_name: string; bill_to_company: number; balance: number }[];
@@ -67,7 +67,7 @@ export default function Companies() {
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
           <StatCard icon={Building2} label="Active accounts" value={data.filter((c) => c.active).length} />
           <StatCard icon={Wallet} label="Owed to the hotel" value={<Money value={owed} />} hint={`${data.filter((c) => c.balance > 0).length} accounts with a balance`} />
-          <StatCard label="Guests in house on account" value={data.reduce((a, c) => a + c.in_house, 0)} />
+          <StatCard icon={BedDouble} label="Guests in house on account" value={data.reduce((a, c) => a + c.in_house, 0)} />
         </div>
       )}
       <Card className="gap-0 overflow-hidden py-0 shadow-xs">
@@ -119,22 +119,12 @@ export default function Companies() {
 function StatementSheet({ id, onClose, onEdit, version, onChange }: { id: number | null; onClose: () => void; onEdit: (c: Company) => void; version: number; onChange: () => void }) {
   const { user } = useAuth();
   const desk = useDesk();
-  const { data: s, reload } = useApi<Statement>(id ? `/companies/${id}?v=${version}` : null);
+  const { data: s, reload } = useApi<CompanyStatement>(id ? `/companies/${id}?v=${version}` : null);
   const [pay, setPay] = useState({ amount: '', method: 'transfer' as PaymentMethod, date: todayISO(), reference: '' });
   const { busy, error, submit } = useSubmit();
 
   // One chronological ledger with a running balance — what an accountant expects to see.
-  const ledger = s
-    ? [
-        ...s.charges.map((c) => ({ date: c.date, key: `c${c.id}`, text: `${c.guest_name} · ${fmtDate(c.check_in)}–${fmtDate(c.check_out)} · ${c.code}`, debit: c.amount, credit: 0, res: c.reservation_id })),
-        ...s.payments.map((p) => ({ date: p.date, key: `p${p.id}`, text: `Payment · ${PAYMENT_LABELS[p.method]}${p.reference ? ` · ${p.reference}` : ''}`, debit: 0, credit: p.amount, res: null as number | null })),
-      ]
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .reduce<{ rows: { date: string; key: string; text: string; debit: number; credit: number; res: number | null; running: number }[]; bal: number }>(
-          (acc, r) => ((acc.bal += r.debit - r.credit), acc.rows.push({ ...r, running: acc.bal }), acc),
-          { rows: [], bal: 0 },
-        ).rows
-    : [];
+  const ledger = s ? ledgerOf(s) : [];
 
   const record = (e: FormEvent) => {
     e.preventDefault();
@@ -177,8 +167,10 @@ function StatementSheet({ id, onClose, onEdit, version, onChange }: { id: number
                     <Pencil /> Edit
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => window.print()}>
-                  <Printer /> Print statement
+                <Button size="sm" variant="outline" asChild>
+                  <a href={`/staff/statement/${s.id}`} target="_blank" rel="noopener">
+                    <Printer /> Print statement
+                  </a>
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => desk.newReservation({ companyId: s.id })}>
                   <Plus /> Book a guest
@@ -334,4 +326,17 @@ function CompanyDialog({ company, onClose, onSaved }: { company: Company | 'new'
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Every charge and payment on the account in date order, with the balance after each line. */
+export function ledgerOf(s: CompanyStatement) {
+  return [
+    ...s.charges.map((c) => ({ date: c.date, key: `c${c.id}`, text: `${c.guest_name} · ${fmtDate(c.check_in)}–${fmtDate(c.check_out)} · ${c.code}`, debit: c.amount, credit: 0, res: c.reservation_id })),
+    ...s.payments.map((p) => ({ date: p.date, key: `p${p.id}`, text: `Payment · ${PAYMENT_LABELS[p.method]}${p.reference ? ` · ${p.reference}` : ''}`, debit: 0, credit: p.amount, res: null as number | null })),
+  ]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .reduce<{ rows: { date: string; key: string; text: string; debit: number; credit: number; res: number | null; running: number }[]; bal: number }>(
+      (acc, r) => ((acc.bal += r.debit - r.credit), acc.rows.push({ ...r, running: acc.bal }), acc),
+      { rows: [], bal: 0 },
+    ).rows;
 }

@@ -60,11 +60,20 @@ npm install
 npm run dev          # API on :4000 + web on http://localhost:5173
 ```
 
-A fresh local database also starts empty and prints a one-time setup code in the terminal. To explore with sample data instead, load the **demo data**. This is for development only. It invents four months of trading and fictional staff, and it refuses to run when `NODE_ENV=production`.
+A fresh local database also starts empty and prints a one-time setup code in the terminal. To work with a full hotel instead, load the **test data**: four months of trading, five staff accounts, 20 rooms, company accounts, and bookings past, in house and upcoming (with rooms still free to book).
 
 ```bash
 npm run seed:demo    # wipes the local database, then signs you in as manager / frontdesk / bar / housekeeping (password Danest@2026!)
 ```
+
+To load the same test data into the **live** database (for testing on the real system), run it on the server:
+
+```bash
+railway ssh -- node --disable-warning=ExperimentalWarning server/seed.ts --production          # empty database
+railway ssh -- node --disable-warning=ExperimentalWarning server/seed.ts --production --reset  # replace everything in it
+```
+
+On a live database every account gets its own random password, printed once in that terminal: share each one privately and have people change it after signing in. The hotel's public phone and email are left blank for the owner to fill in. Without `--production` it refuses; without `--reset` it never touches a database that already has accounts.
 
 Production-style (one process serves the API and the built site on :4000):
 

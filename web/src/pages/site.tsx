@@ -1,6 +1,7 @@
 import { Menu } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { Crest } from '@/components/app/letterhead';
 import { ThemeMenu, ThemeSwitch } from '@/components/app/theme';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -25,9 +26,9 @@ export function SiteHeader() {
   }, []);
   return (
     <header className={cn('sticky top-0 z-40 border-b border-transparent bg-background/80 backdrop-blur transition-colors', scrolled && 'border-border')}>
-      <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
+      <div className="mx-auto flex h-18 max-w-6xl items-center gap-4 px-4 sm:gap-6 sm:px-6">
         <Link to="/" className="flex items-center gap-2.5">
-          <img src="/brand/crest-128.png" alt="" className="size-9 rounded-full ring-1 ring-border" />
+          <Crest className="size-12" />
           <span className="leading-tight">
             <span className="block text-sm font-semibold">{hotel?.name ?? 'Danest Hotel & Suites'}</span>
             <span className="block text-[11px] text-muted-foreground">Old Bodija, Ibadan</span>
@@ -85,7 +86,7 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-[1.5fr_1fr_1fr]">
         <div className="space-y-3">
           <div className="flex items-center gap-2.5">
-            <img src="/brand/crest-128.png" alt="" className="size-9 rounded-full ring-1 ring-border" />
+            <Crest className="size-14" />
             <span className="text-sm font-semibold">{hotel?.name}</span>
           </div>
           {hotel?.tagline && <p className="text-sm text-muted-foreground italic">{hotel.tagline}</p>}

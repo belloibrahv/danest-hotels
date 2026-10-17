@@ -1,4 +1,4 @@
-import { ChevronRight, Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { ChevronRight, Minus, Plus, Printer, Search, ShoppingBag, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CHARGE_LABELS, CHARGE_METHODS, type ChargeMethod } from '../../../../shared/constants';
@@ -66,11 +66,14 @@ export default function Pos() {
 
   const charge = () =>
     submit(async () => {
-      const r = await api<{ receipt_no: string; total: number }>('/sales', {
+      const r = await api<{ id: number; receipt_no: string; total: number }>('/sales', {
         body: { method, reservation_id: method === 'room' ? Number(guest) : undefined, items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty })) },
       });
       const room = inhouse.data?.find((g) => String(g.reservation_id) === guest)?.room_number;
-      toast.success(method === 'room' ? `${naira(r.total)} added to room ${room}` : `${naira(r.total)} received`, { description: r.receipt_no });
+      toast.success(method === 'room' ? `${naira(r.total)} added to room ${room}` : `${naira(r.total)} received`, {
+        description: r.receipt_no,
+        action: { label: 'Print receipt', onClick: () => window.open(`/staff/receipt/${r.id}`, '_blank', 'noopener') },
+      });
       setCart(new Map());
       setGuest('');
       products.reload();
@@ -220,7 +223,7 @@ export default function Pos() {
                 <TableHead>Items</TableHead>
                 <TableHead>Paid by</TableHead>
                 <TableHead className="pr-5 text-right">Amount</TableHead>
-                {can(user, 'manager') && <TableHead className="w-0 pr-3" />}
+                <TableHead className="w-0 pr-3" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -235,8 +238,13 @@ export default function Pos() {
                   <TableCell className="pr-5 text-right font-medium">
                     <Money value={s.total} />
                   </TableCell>
-                  {can(user, 'manager') && (
-                    <TableCell className="pr-3 text-right">
+                  <TableCell className="pr-3 text-right whitespace-nowrap">
+                    <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" asChild>
+                      <a href={`/staff/receipt/${s.id}`} target="_blank" rel="noopener" aria-label={`Print receipt ${s.receipt_no}`}>
+                        <Printer />
+                      </a>
+                    </Button>
+                    {can(user, 'manager') && (
                       <VoidButton
                         label={`receipt ${s.receipt_no}`}
                         onVoid={async (reason) => {
@@ -246,8 +254,8 @@ export default function Pos() {
                           till.reload();
                         }}
                       />
-                    </TableCell>
-                  )}
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

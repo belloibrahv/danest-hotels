@@ -49,9 +49,9 @@ export function SetupChecklist() {
       flush
     >
       <Progress value={(done / STEPS.length) * 100} className="h-1 rounded-none" />
-      <ul className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-y-0">
+      <ul className={cn('grid grid-cols-1 divide-y', steps.length > 1 && 'sm:grid-cols-2 sm:divide-y-0')}>
         {steps.map(([k, title, text, to]) => (
-          <li key={k} className="sm:border-b sm:odd:border-r">
+          <li key={k} className={cn(steps.length > 1 && 'sm:border-b sm:odd:border-r')}>
             <Link to={to} className={cn('group flex items-center gap-3 px-5 py-3 transition-colors hover:bg-muted/50', data[k] && 'opacity-60')}>
               <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-full border', data[k] && 'border-success bg-success text-background')}>{data[k] && <Check className="size-3.5" />}</span>
               <span className="min-w-0 flex-1">

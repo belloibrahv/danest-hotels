@@ -181,6 +181,24 @@ inventory.post(
   }),
 );
 
+/** One receipt, for printing. Bar staff can reprint today's receipts only, like the till list. */
+inventory.get(
+  '/sales/:id',
+  allow('manager', 'bar'),
+  h((req, res) => {
+    const sale = get<{ id: number; date: string }>(
+      `SELECT s.id, s.receipt_no, s.date, s.created_at, s.method, s.total, u.name AS staff, rm.number AS room_number, g.name AS guest_name
+         FROM sales s LEFT JOIN users u ON u.id = s.staff_id
+         LEFT JOIN reservations r ON r.id = s.reservation_id LEFT JOIN rooms rm ON rm.id = r.room_id LEFT JOIN guests g ON g.id = r.guest_id
+        WHERE s.id = ?`,
+      Number(req.params.id),
+    );
+    if (!sale || (req.user!.role !== 'manager' && sale.date !== today())) throw new HttpError(404, 'Receipt not found');
+    const items = all('SELECT si.qty, si.unit_price, p.name FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? ORDER BY si.id', sale.id);
+    res.json({ ...sale, items });
+  }),
+);
+
 inventory.get(
   '/sales',
   allow('manager', 'bar'),

@@ -40,7 +40,11 @@ export function StatCard({ label, value, hint, icon: Icon, trend, className }: {
     <Card className={cn('gap-0 py-0 shadow-xs', className)}>
       <CardContent className="p-5">
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          {Icon && <Icon className="size-3.5" />}
+          {Icon && (
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand-ink">
+              <Icon className="size-3.5" />
+            </span>
+          )}
           {label}
         </div>
         <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">{value}</div>

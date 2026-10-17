@@ -8,7 +8,7 @@ export function OfflineNotice() {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-full border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg"
+      className="fixed inset-x-0 print:hidden bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-full border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg"
     >
       <WifiOff className="size-4 shrink-0 text-warning" />
       <span>You're offline. You can look around, but nothing is saved until the connection is back.</span>

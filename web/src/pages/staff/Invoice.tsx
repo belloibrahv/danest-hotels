@@ -2,6 +2,7 @@ import { Printer } from 'lucide-react';
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { ALL_PAYMENT_LABELS, type HotelSettings } from '../../../../shared/constants';
+import { Letterhead } from '@/components/app/letterhead';
 import { ErrorNote, LoadingRows } from '@/components/app/page';
 import { Button } from '@/components/ui/button';
 import { fmtDate, fmtDateLong, naira, todayISO } from '@/lib/api';
@@ -33,24 +34,16 @@ export default function Invoice() {
         <Button onClick={() => print()}><Printer /> Print or save as PDF</Button>
       </div>
       <article className="mx-auto max-w-3xl rounded-lg border bg-card p-10 shadow-sm print:border-0 print:p-0 print:shadow-none">
-        <header className="flex flex-wrap items-start justify-between gap-6 border-b pb-6">
-          <div className="flex items-start gap-4">
-            <img src="/brand/crest-128.png" alt="" className="size-14 rounded-full" />
-            <div>
-              <div className="text-lg font-semibold">{hotel.name}</div>
-              <div className="max-w-64 text-xs text-muted-foreground">
-                {hotel.address}
-                {(hotel.phone || hotel.email) && <br />}
-                {[hotel.phone, hotel.email].filter(Boolean).join(' · ')}
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-2xl font-semibold tracking-tight">{settled ? 'Receipt' : 'Invoice'}</div>
-            <div className="font-mono text-sm text-muted-foreground">{r.code}</div>
-            <div className="text-sm text-muted-foreground">{fmtDateLong(todayISO())}</div>
-          </div>
-        </header>
+        <Letterhead
+          hotel={hotel}
+          title={settled ? 'Receipt' : 'Invoice'}
+          meta={
+            <>
+              <div className="font-mono">{r.code}</div>
+              <div>{fmtDateLong(todayISO())}</div>
+            </>
+          }
+        />
 
         <dl className="grid grid-cols-2 gap-4 py-6 text-sm sm:grid-cols-4">
           <div><dt className="text-xs text-muted-foreground uppercase">Guest</dt><dd className="font-medium">{r.guest_name}</dd><dd className="text-muted-foreground">{r.guest_phone}</dd></div>

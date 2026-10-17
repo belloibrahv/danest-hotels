@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ROLE_LABELS } from '../../../../shared/constants';
 import { CommandMenu } from '@/components/app/command-menu';
+import { Crest } from '@/components/app/letterhead';
 import { ThemeMenu } from '@/components/app/theme';
 import { LoadingRows } from '@/components/app/page';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -55,6 +56,8 @@ const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
 };
 const Account = lazy(() => import('./Account'));
 const Invoice = lazy(() => import('./Invoice'));
+const Receipt = lazy(() => import('./Receipt'));
+const Statement = lazy(() => import('./Statement'));
 
 /** The staff app is the installable one: its manifest is only offered on staff pages, never to guests. */
 function useStaffManifest() {
@@ -74,6 +77,8 @@ export default function StaffApp() {
       <Routes>
         <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
         <Route path="invoice/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
+        <Route path="statement/:id" element={user && (user.role === 'manager' || user.role === 'frontdesk') ? <Statement /> : <Navigate to="/staff/login" replace />} />
+        <Route path="receipt/:id" element={user && (user.role === 'manager' || user.role === 'bar') ? <Receipt /> : <Navigate to="/staff/login" replace />} />
         <Route
           path="*"
           element={
@@ -120,8 +125,11 @@ function Shell() {
       <AppSidebar items={items} pending={pending.data?.length ?? 0} />
       {/* min-w-0: wide content (the tape chart) scrolls inside its card instead of stretching the page. */}
       <SidebarInset className="min-w-0">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <header data-app-chrome className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <SidebarTrigger className="-ml-1" />
+          <NavLink to={homeFor(user!.role)} className="md:hidden" aria-label="Danest Hotel & Suites, home">
+            <Crest className="size-9" />
+          </NavLink>
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <span className="truncate text-sm font-medium">{current?.label ?? (loc.pathname.endsWith('/account') ? 'My account' : '')}</span>
           <div className="ml-auto flex items-center gap-2">
@@ -169,19 +177,17 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
   return (
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <NavLink to={homeFor(user!.role)}>
-                <img src="/brand/crest-128.png" alt="" className="size-8 rounded-full ring-1 ring-border" />
-                <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate text-sm font-semibold">Danest</span>
-                  <span className="truncate text-xs text-muted-foreground">Hotel &amp; Suites</span>
-                </div>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <NavLink
+          to={homeFor(user!.role)}
+          aria-label="Danest Hotel & Suites, home"
+          className="flex items-center gap-3 rounded-lg p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
+        >
+          <Crest className="size-12 transition-[width,height] group-data-[collapsible=icon]:size-8" />
+          <div className="grid min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
+            <span className="truncate text-[15px] font-semibold tracking-tight">Danest</span>
+            <span className="truncate text-xs text-muted-foreground">Hotel &amp; Suites</span>
+          </div>
+        </NavLink>
       </SidebarHeader>
       <SidebarContent>
         {groups.map((g) => (
