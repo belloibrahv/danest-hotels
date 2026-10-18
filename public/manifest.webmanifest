@@ -1,0 +1,26 @@
+{
+  "id": "/staff",
+  "name": "Danest Hotel & Suites",
+  "short_name": "Danest",
+  "description": "Front desk, bar, housekeeping and the hotel's books for Danest Hotel & Suites.",
+  "start_url": "/staff",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fdfcfa",
+  "theme_color": "#fdfcfa",
+  "lang": "en-NG",
+  "categories": ["business", "productivity", "travel"],
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/crest-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Room board", "url": "/staff/front-desk", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Bar & shop till", "url": "/staff/pos", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Housekeeping", "url": "/staff/housekeeping", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Close the day", "url": "/staff/close-day", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -1,0 +1,163 @@
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { existsSync, readFileSync } from 'node:fs';
+import { manifest, monogramSvg, renderIndex } from './branding.ts';
+import { resolve } from 'node:path';
+import { ROLES } from '../shared/constants.ts';
+import { allow, loadSession } from './auth.ts';
+import { stream } from './live.ts';
+import { enforceLicence, licenceStatus } from './licence.ts';
+import { HttpError } from './lib.ts';
+import { closeDay } from './routes/closeday.ts';
+import { accounts } from './routes/accounts.ts';
+import { backups } from './routes/backups.ts';
+import { people } from './routes/people.ts';
+import { catalog } from './routes/catalog.ts';
+import { commercial } from './routes/commercial.ts';
+import { recordSuccess, validSignature } from './paystack.ts';
+import { config } from './routes/config.ts';
+import { executive } from './routes/executive.ts';
+import { finance } from './routes/finance.ts';
+import { housekeeping } from './routes/housekeeping.ts';
+import { inventory } from './routes/inventory.ts';
+import { publicApi } from './routes/public.ts';
+import { purchasing } from './routes/purchasing.ts';
+import { reservations } from './routes/reservations.ts';
+import { review } from './routes/review.ts';
+import { website } from './routes/website.ts';
+import { team } from './routes/team.ts';
+
+const isProd = process.env.NODE_ENV === 'production';
+
+/** Header every state-changing request from our own UI carries. Browsers won't send it cross-site without a CORS preflight we never grant. */
+export const CSRF_HEADER = 'x-danest-request';
+
+export function createApp() {
+  const app = express();
+  app.disable('x-powered-by');
+  // Behind one reverse proxy (nginx / Render / Fly) in production so req.ip is the visitor, not the proxy.
+  app.set('trust proxy', isProd ? 1 : false);
+
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "frame-src https://www.google.com",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+      ].join('; '),
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('X-Frame-Options', 'DENY');
+    if (isProd) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+  });
+
+  // Paystack calls this server-to-server. It carries no browser cookies or CSRF header, so it is
+  // authenticated by its HMAC signature instead, over the exact bytes received.
+  app.post('/api/paystack/webhook', express.raw({ type: '*/*', limit: '100kb' }), (req: Request, res: Response) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!validSignature(raw, req.get('x-paystack-signature'))) return res.sendStatus(401);
+    try {
+      const event = JSON.parse(raw.toString('utf8')) as { event?: string; data?: { reference?: string; amount?: number } };
+      if (event.event === 'charge.success' && event.data?.reference && typeof event.data.amount === 'number') {
+        recordSuccess(event.data.reference, event.data.amount, event.data);
+      }
+    } catch (err) {
+      // Unknown references and duplicates are acknowledged so Paystack stops retrying; real errors are logged.
+      if (!(err instanceof HttpError)) console.error('paystack webhook', err);
+    }
+    res.sendStatus(200);
+  });
+
+  const api = express.Router();
+  // Photos and spreadsheet uploads are the only bodies allowed to be large; everything else stays small.
+  api.use(['/products/import', '/settings/images', /^\/products\/\d+\/image$/], express.json({ limit: '2mb' }));
+  api.use(express.json({ limit: '50kb' }));
+  api.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      if (req.get(CSRF_HEADER) !== '1') return next(new HttpError(403, 'Request blocked'));
+      const origin = req.get('origin');
+      if (origin && new URL(origin).host !== req.get('host')) return next(new HttpError(403, 'Request blocked'));
+    }
+    next();
+  });
+  api.use(loadSession);
+  api.use(enforceLicence);
+  api.get('/licence', allow(...ROLES), (_req, res) => res.json(licenceStatus()));
+  api.get('/health', (_req, res) => res.json({ ok: true }));
+  api.get('/public/monogram.svg', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.type('image/svg+xml').send(monogramSvg());
+  });
+  api.get('/live', allow(...ROLES), stream);
+  api.use('/public', publicApi);
+  api.use(website);
+  api.use(team);
+  api.use(reservations);
+  api.use(inventory);
+  api.use(finance);
+  api.use(config);
+  api.use(housekeeping);
+  api.use(closeDay);
+  api.use(commercial);
+  api.use(purchasing);
+  api.use(catalog);
+  api.use(accounts);
+  api.use(review);
+  api.use(executive);
+  api.use(backups);
+  api.use(people);
+  api.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
+  app.use('/api', api);
+
+  const dist = resolve(import.meta.dirname, '../dist');
+  if (existsSync(dist)) {
+    // The installed app is named after the hotel in Settings.
+    app.get('/manifest.webmanifest', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('application/manifest+json').send(JSON.stringify(manifest()));
+    });
+    // The service worker and manifest decide when a new version reaches staff, so they are never cached.
+    app.get(['/sw.js', '/manifest.webmanifest'], (req, res, next) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      if (req.path.endsWith('.webmanifest')) res.type('application/manifest+json');
+      next();
+    });
+    // Built files carry a content hash in their name, so they can be cached for good.
+    // An old page asking for a file from a previous deploy gets a plain 404, never the HTML page.
+    app.use('/assets', express.static(resolve(dist, 'assets'), { immutable: true, maxAge: '1y' }), (_req, res) => res.sendStatus(404));
+    // redirect: false — /brand is a page as well as the folder that holds the brand images.
+    app.use(express.static(dist, { index: false, redirect: false, maxAge: '1h', setHeaders: (res, path) => {
+      if (/(sw\.js|\.webmanifest)$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
+    } }));
+    // Every page gets the hotel's own title, description and icon, for search results and link previews.
+    const template = readFileSync(resolve(dist, 'index.html'), 'utf8');
+    app.get(/^(?!\/api\/).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(renderIndex(template));
+    });
+  }
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
+    if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.too.large') return res.status(413).json({ error: 'Request too large' });
+    console.error(err);
+    // Never leak stack traces or SQL to the client.
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  });
+
+  return app;
+}
