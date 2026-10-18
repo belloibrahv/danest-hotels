@@ -96,6 +96,28 @@ const MENU: [string, number, number][] = [
   ['Full English breakfast', 4500, 2000],
 ];
 
+// 18 staff whose pay adds up to the ₦1,840,000 monthly payroll in the test data. [name, position, department, salary, username]
+const STAFF: [string, string, string, number, string | null][] = [
+  ['Mrs. Folake Adeyemi', 'General manager', 'management', 350000, 'manager'],
+  ['Mrs. Ronke Alabi', 'Accountant', 'management', 200000, 'accountant'],
+  ['Tunde Bakare', 'Front desk officer', 'front_office', 100000, 'frontdesk'],
+  ['Ibrahim Musa', 'Front desk officer', 'front_office', 100000, 'frontdesk2'],
+  ['Sade Ogunleye', 'Night auditor / front desk', 'front_office', 100000, null],
+  ['Grace Okon', 'Bar attendant', 'bar', 80000, 'bar'],
+  ['Femi Lawal', 'Bar attendant', 'bar', 80000, null],
+  ['Kemi Adeyinka', 'Cook', 'kitchen', 130000, 'kitchen'],
+  ['Ifeoma Nwosu', 'Kitchen assistant', 'kitchen', 70000, null],
+  ['Blessing Eze', 'Housekeeper', 'housekeeping', 60000, 'housekeeping'],
+  ['Halima Bello', 'Housekeeper', 'housekeeping', 60000, null],
+  ['Nneka Obi', 'Housekeeper', 'housekeeping', 60000, null],
+  ['Zainab Salami', 'Housekeeper', 'housekeeping', 60000, null],
+  ['Musa Danjuma', 'Security guard', 'security', 70000, null],
+  ['Kunle Ojo', 'Security guard', 'security', 70000, null],
+  ['Jide Afolabi', 'Maintenance technician', 'maintenance', 120000, null],
+  ['Tobi Akinola', 'Pool & gym attendant', 'facilities', 70000, null],
+  ['Efe Uzor', 'Laundry attendant', 'housekeeping', 60000, null],
+];
+
 const FIRST = ['Adewale', 'Chioma', 'Emeka', 'Funmilayo', 'Ibrahim', 'Kemi', 'Oluwaseun', 'Ngozi', 'Yusuf', 'Bisi', 'Segun', 'Amaka', 'Tolu', 'Hauwa', 'Femi', 'Zainab', 'Kunle', 'Ifeoma', 'Bayo', 'Aisha', 'Dayo', 'Nneka', 'Gbenga', 'Halima', 'Jide', 'Uche', 'Remi', 'Sade', 'Tobi', 'Efe'];
 const LAST = ['Adebayo', 'Okafor', 'Balogun', 'Eze', 'Ogunleye', 'Abubakar', 'Olaniyan', 'Nwosu', 'Akinola', 'Bello', 'Oyelaran', 'Danjuma', 'Afolabi', 'Obi', 'Adeleke', 'Lawal', 'Ojo', 'Uzor', 'Salami', 'Ilori'];
 
@@ -134,12 +156,21 @@ export function seed(opts: { live?: boolean } = {}) {
   const passwords = DEMO_USERS.map(() => (opts.live ? randomBytes(12).toString('base64url') : DEMO_PASSWORD));
 
   tx(() => {
-    for (const t of ['audit_queries', 'targets', 'supplier_payments', 'product_images', 'messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'suppliers', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
+    for (const t of ['shifts', 'pay_lines', 'pay_runs', 'employees', 'audit_queries', 'targets', 'supplier_payments', 'product_images', 'messages', 'refunds', 'online_payments', 'company_payments', 'reservation_nights', 'rate_rules', 'day_closures', 'maintenance_tickets', 'housekeeping_log', 'facility_items', 'settings', 'audit_log', 'sessions', 'mfa_challenges', 'recovery_codes', 'sale_items', 'sales', 'purchase_items', 'purchases', 'payments', 'facility_income', 'reservations', 'guests', 'expenses', 'products', 'suppliers', 'rooms', 'room_types', 'companies', 'users', 'rate_limits']) {
       db.exec(`DELETE FROM ${t}`);
     }
 
     const userIds = DEMO_USERS.map((u, i) => run('INSERT INTO users (name, username, role, password_hash) VALUES (?,?,?,?)', u.name, u.username, u.role, hashPassword(passwords[i])).id);
     const [managerId, deskId, barId, desk2Id, , ownerId, accountantId, auditorId] = userIds;
+    const userByName = new Map(DEMO_USERS.map((u, i) => [u.username, userIds[i]] as const));
+    const staff = STAFF.map(([name, position, department, salary, username]) => ({
+      id: run(
+        'INSERT INTO employees (name, position, department, phone, bank_name, account_number, start_date, monthly_salary, pension, user_id) VALUES (?,?,?,?,?,?,?,?,1,?)',
+        name, position, department, `080${String(31000000 + name.length * 7919).slice(0, 8)}`, pick(['GTBank', 'Access Bank', 'First Bank', 'UBA', 'Zenith Bank', 'Opay']),
+        String(1000000000 + name.length * 104729).slice(0, 10), addDays(T, -between(200, 1500)), salary, username ? userByName.get(username as never) ?? null : null,
+      ).id,
+      salary,
+    }));
 
     // The public website never shows an invented phone number or email: on a live database these stay for the owner to fill in.
     for (const [k, v] of Object.entries({ ...(!opts.live && { phone: '0803 000 0000', email: 'frontdesk@example.com' }), highlights: [
@@ -435,7 +466,11 @@ export function seed(opts: { live?: boolean } = {}) {
       if (dom === 1) {
         // Paid in arrears for the month just ended.
         const month = new Date(`${addDays(d, -1)}T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
-        exp('salaries', `${month} payroll — 18 staff`, 1_840_000, 'Staff payroll');
+        const payExpense = exp('salaries', `${month} payroll — 18 staff`, 1_840_000, 'Staff payroll').id;
+        // The same payroll as a pay run, so payslips exist for it (test figures: pension 8%, PAYE as a flat 5%).
+        const runId = run("INSERT INTO pay_runs (month, status, created_by, approved_by, approved_at, paid_by, paid_on, method, expense_id) VALUES (?, 'paid', ?, ?, ?, ?, ?, 'transfer', ?)",
+          addDays(d, -1).slice(0, 7), accountantId, ownerId, stamp(addDays(d, -1), 16, 0), accountantId, d, payExpense).id;
+        for (const e of staff) run('INSERT INTO pay_lines (pay_run_id, employee_id, basic, pension, paye) VALUES (?,?,?,?,?)', runId, e.id, e.salary, Math.round(e.salary * 0.08), Math.round(e.salary * 0.05));
         exp('security', `Security guards — ${month} contract`, 260_000, 'Eagle Eye Guards Ltd');
       }
       if (dom % 3 === 0) exp('diesel', `Diesel ${between(150, 220)} litres`, round(between(150, 220) * 1300, 1000), 'Bodija filling station');
@@ -516,6 +551,18 @@ export function seed(opts: { live?: boolean } = {}) {
     );
     const NOTES = ['Prefers a ground-floor room', 'Likes extra pillows; early riser', 'Corporate guest — sends company invoice', 'Always asks for room 302 if free', 'Allergic to groundnuts — tell the kitchen', 'Celebrates anniversary in December'];
     top.forEach((g, i) => run('UPDATE guests SET vip = 1, notes = ? WHERE id = ?', NOTES[i], g.id));
+    // ----- the rota: this week and next, with a day off each -----
+    {
+      const monday = addDays(T, -((new Date(`${T}T00:00:00Z`).getUTCDay() + 6) % 7));
+      staff.forEach((e, i) => {
+        for (let k = 0; k < 14; k++) {
+          const day = addDays(monday, k);
+          const shift = (k + i) % 7 === 6 ? 'off' : STAFF[i][2] === 'security' || (STAFF[i][2] === 'front_office' && i % 3 === 2) ? 'night' : (k + i) % 2 ? 'morning' : 'afternoon';
+          run('INSERT INTO shifts (employee_id, date, shift) VALUES (?,?,?)', e.id, day, STAFF[i][2] === 'management' && (k % 7) >= 5 ? 'off' : shift);
+        }
+      });
+    }
+
     // ----- the night audit: every day closed up to two weeks ago, the drawer short or over now and then -----
     const closeTo = addDays(T, -14);
     for (let d = START; d <= closeTo; d = addDays(d, 1)) {

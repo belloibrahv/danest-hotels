@@ -461,3 +461,46 @@ describe('the ledger export balances', () => {
     assert.match(await res.text(), /^﻿?"JournalNo","JournalDate","AccountCode","AccountName","Debits","Credits","Description"/);
   });
 });
+
+describe('staff, payroll and the rota', () => {
+  const month = today().slice(0, 7);
+  test('pay is private to management and the books; the rota is for everyone', async () => {
+    const staff = (await call('/employees', { cookie: bar })).json;
+    assert.ok(staff.length >= 18);
+    assert.equal(staff[0].monthly_salary, undefined, 'bar staff never see pay');
+    assert.ok((await call('/employees', { cookie: auditor })).json[0].monthly_salary > 0);
+    assert.equal((await call('/payroll', { cookie: bar })).status, 403);
+    ok(await call('/rota', { cookie: bar }));
+    assert.equal((await call('/rota', { cookie: bar, method: 'PUT', body: { changes: [{ employee_id: 1, date: today(), shift: 'off' }] } })).status, 403);
+  });
+
+  test('draft from salaries, adjust, approve, pay: the expense is booked once', async () => {
+    ok(await call('/payroll', { cookie: accountant, body: { month } }), 201);
+    assert.equal((await call('/payroll', { cookie: accountant, body: { month } })).status, 409, 'one run a month');
+    const run = (await call(`/payroll?month=${month}`, { cookie: accountant })).json.run;
+    assert.equal(run.totals.gross, get<{ s: number }>('SELECT SUM(monthly_salary) s FROM employees WHERE active = 1 AND monthly_salary > 0')!.s);
+    const line = run.lines[0];
+    assert.equal(line.pension, Math.round(line.basic * 0.08), 'pension at 8%');
+    assert.equal((await call(`/payroll/lines/${line.id}`, { cookie: accountant, method: 'PATCH', body: { ...line, paye: line.basic * 2 } })).status, 400, 'deductions above pay are refused');
+    ok(await call(`/payroll/lines/${line.id}`, { cookie: accountant, method: 'PATCH', body: { ...line, overtime: 10_000, paye: 12_000, note: 'Extra weekend shifts' } }));
+    assert.equal((await call(`/payroll/${month}/paid`, { cookie: accountant, body: { method: 'transfer' } })).status, 409, 'approve before paying');
+    assert.equal((await call(`/payroll/${month}/approve`, { cookie: accountant, body: {} })).status, 403, 'the accountant prepares, management approves');
+    ok(await call(`/payroll/${month}/approve`, { cookie: owner, body: {} }));
+    assert.equal((await call(`/payroll/lines/${line.id}`, { cookie: accountant, method: 'PATCH', body: line })).status, 409, 'approved pay is locked');
+    const before = get<{ n: number }>("SELECT COUNT(*) n FROM expenses WHERE category = 'salaries'")!.n;
+    const paid = await call(`/payroll/${month}/paid`, { cookie: accountant, body: { method: 'transfer' } });
+    ok(paid);
+    assert.equal(get<{ n: number }>("SELECT COUNT(*) n FROM expenses WHERE category = 'salaries'")!.n, before + 1);
+    assert.equal(get<{ amount: number }>('SELECT amount FROM expenses WHERE id = (SELECT expense_id FROM pay_runs WHERE month = ?)', month)!.amount, paid.json.totals.gross);
+    assert.equal((await call(`/payroll/${month}/paid`, { cookie: accountant, body: { method: 'transfer' } })).status, 409, 'never booked twice');
+  });
+
+  test('a manager sets the rota', async () => {
+    const e = get<{ id: number }>('SELECT id FROM employees LIMIT 1')!.id;
+    ok(await call('/rota', { cookie: manager, method: 'PUT', body: { changes: [{ employee_id: e, date: today(), shift: 'leave' }] } }));
+    const rota = (await call(`/rota?week=${today()}`, { cookie: desk })).json;
+    assert.equal(rota.shifts.find((s: any) => s.employee_id === e && s.date === today()).shift, 'leave');
+    assert.equal(rota.days.length, 7);
+    assert.equal(new Date(`${rota.week}T00:00:00Z`).getUTCDay(), 1, 'weeks start on Monday');
+  });
+});

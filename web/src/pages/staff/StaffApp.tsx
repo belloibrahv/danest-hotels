@@ -58,12 +58,14 @@ const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
   audit: lazy(() => import('./Audit')),
   suppliers: lazy(() => import('./Suppliers')),
   kitchen: lazy(() => import('./Kitchen')),
+  people: lazy(() => import('./People')),
   settings: lazy(() => import('./Settings')),
 };
 const Account = lazy(() => import('./Account'));
 const Invoice = lazy(() => import('./Invoice'));
 const Receipt = lazy(() => import('./Receipt'));
 const Statement = lazy(() => import('./Statement'));
+const Payslips = lazy(() => import('./Payslips'));
 
 /** The staff app is the installable one: its manifest is only offered on staff pages, never to guests. */
 function useStaffManifest() {
@@ -84,6 +86,7 @@ export default function StaffApp() {
         <Route path="login" element={user ? <Navigate to={homeFor(user.role)} replace /> : <Login />} />
         <Route path="invoice/:id" element={can(user, 'manager', 'frontdesk', 'accountant', 'auditor') ? <Invoice /> : <Navigate to="/staff/login" replace />} />
         <Route path="statement/:id" element={can(user, 'manager', 'frontdesk', 'accountant', 'auditor') ? <Statement /> : <Navigate to="/staff/login" replace />} />
+        <Route path="payslips/:month" element={can(user, 'manager', 'accountant', 'auditor') ? <Payslips /> : <Navigate to="/staff/login" replace />} />
         <Route path="receipt/:id" element={can(user, 'manager', 'bar', 'accountant', 'auditor') ? <Receipt /> : <Navigate to="/staff/login" replace />} />
         <Route
           path="*"

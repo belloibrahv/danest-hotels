@@ -683,6 +683,63 @@ const MIGRATIONS: string[] = [
   ALTER TABLE messages_v2 RENAME TO messages;
   CREATE INDEX idx_messages_res ON messages(reservation_id);
   `,
+
+  // 8 — staff records, monthly payroll and the weekly rota
+  `
+  CREATE TABLE employees (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    position TEXT NOT NULL,
+    department TEXT NOT NULL DEFAULT 'general',
+    phone TEXT,
+    bank_name TEXT,
+    account_number TEXT,
+    start_date TEXT,
+    monthly_salary INTEGER NOT NULL DEFAULT 0 CHECK (monthly_salary >= 0),
+    pension INTEGER NOT NULL DEFAULT 1,
+    user_id INTEGER REFERENCES users(id),
+    active INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- A month's pay: drafted, approved by management, then paid (which books the salaries expense).
+  CREATE TABLE pay_runs (
+    id INTEGER PRIMARY KEY,
+    month TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','paid')),
+    created_by INTEGER REFERENCES users(id),
+    approved_by INTEGER REFERENCES users(id),
+    approved_at TEXT,
+    paid_by INTEGER REFERENCES users(id),
+    paid_on TEXT,
+    method TEXT CHECK (method IN ('cash','transfer','pos')),
+    expense_id INTEGER REFERENCES expenses(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE pay_lines (
+    id INTEGER PRIMARY KEY,
+    pay_run_id INTEGER NOT NULL REFERENCES pay_runs(id) ON DELETE CASCADE,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    basic INTEGER NOT NULL DEFAULT 0 CHECK (basic >= 0),
+    allowances INTEGER NOT NULL DEFAULT 0 CHECK (allowances >= 0),
+    overtime INTEGER NOT NULL DEFAULT 0 CHECK (overtime >= 0),
+    pension INTEGER NOT NULL DEFAULT 0 CHECK (pension >= 0),
+    paye INTEGER NOT NULL DEFAULT 0 CHECK (paye >= 0),
+    other_deductions INTEGER NOT NULL DEFAULT 0 CHECK (other_deductions >= 0),
+    note TEXT,
+    UNIQUE (pay_run_id, employee_id)
+  );
+
+  CREATE TABLE shifts (
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    shift TEXT NOT NULL CHECK (shift IN ('morning','afternoon','night','off','leave')),
+    PRIMARY KEY (employee_id, date)
+  );
+  CREATE INDEX idx_shifts_date ON shifts(date);
+  `,
 ];
 
 {

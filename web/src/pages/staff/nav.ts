@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarRange,
   ChefHat,
+  Contact,
   Crown,
   Landmark,
   LayoutDashboard,
@@ -23,7 +24,7 @@ import {
   Wine,
   type LucideIcon,
 } from 'lucide-react';
-import type { Role } from '../../../../shared/constants';
+import { ROLES, type Role } from '../../../../shared/constants';
 
 export interface NavItem {
   to: string;
@@ -58,6 +59,7 @@ export const NAV: NavItem[] = [
   { to: '/staff/purchases', label: 'Purchases', icon: ShoppingCart, roles: books, group: 'Stock & costs' },
   { to: '/staff/suppliers', label: 'Suppliers', icon: Truck, roles: books, group: 'Stock & costs' },
   { to: '/staff/expenses', label: 'Expenses', icon: Receipt, roles: books, group: 'Stock & costs' },
+  { to: '/staff/people', label: 'Staff & rota', icon: Contact, roles: [...ROLES], group: 'Admin' },
   { to: '/staff/close-day', label: 'Close the day', icon: Moon, roles: ['manager'], group: 'Admin' },
   { to: '/staff/team', label: 'Team & activity', icon: UserCog, roles: ['manager'], group: 'Admin' },
   { to: '/staff/settings', label: 'Settings', icon: Settings, roles: ['manager'], group: 'Admin' },
