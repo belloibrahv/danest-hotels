@@ -483,7 +483,7 @@ export function seed(opts: { live?: boolean } = {}) {
       const notes = variance ? (variance < 0 ? pick(['Short — change given wrongly at the bar', 'Short — cashier to explain', 'POS reversal paid back in cash']) : 'Over — customer left change') : null;
       run(
         `INSERT INTO day_closures (date, closed_by, closed_at, expected_cash, counted_cash, expected_transfer, expected_pos, variance, notes, summary) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        d, managerId, stamp(addDays(d, 1), 1, 30), expected.cash ?? 0, (expected.cash ?? 0) + variance, expected.transfer ?? 0, expected.pos ?? 0, variance, notes, JSON.stringify(report),
+        d, managerId, stamp(addDays(d, 1), 1, 30), report.expected_cash, report.expected_cash + variance, expected.transfer ?? 0, expected.pos ?? 0, variance, notes, JSON.stringify(report),
       );
       run('INSERT INTO audit_log (user_id, action, entity, detail, created_at) VALUES (?,?,?,?,?)', managerId, variance ? 'close_day_with_variance' : 'close_day', 'day', JSON.stringify({ date: d, variance }), stamp(addDays(d, 1), 1, 30));
     }

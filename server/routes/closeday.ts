@@ -14,14 +14,33 @@ import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 export const closeDay = Router();
 const manager = allow('manager');
 
+/**
+ * Cash that left the drawer during the day: running costs, supplier bills and deliveries paid in
+ * cash. Refunds are already netted out of what was collected.
+ */
+function paidOut(d: string) {
+  const rows = all<{ what: string; v: number }>(
+    `SELECT 'Expenses' what, COALESCE(SUM(amount),0) v FROM expenses WHERE method = 'cash' AND date = ?1
+     UNION ALL SELECT 'Supplier bills', COALESCE(SUM(amount),0) FROM supplier_payments WHERE method = 'cash' AND date = ?1
+     UNION ALL SELECT 'Stock paid on delivery', COALESCE(SUM(total),0) FROM purchases WHERE status = 'received' AND terms = 'cash' AND date = ?1`,
+    d,
+  ).filter((r) => r.v > 0);
+  return { lines: rows, total: rows.reduce((a, r) => a + r.v, 0) };
+}
+
 export function dayReport(d: string) {
   const p = profitAndLoss(d, d);
+  const c = collections(d, d);
+  const out = paidOut(d);
   return {
     revenue: p.revenue,
     totalRevenue: p.totalRevenue,
     expenses: p.operating.reduce((a, x) => a + x.amount, 0) + p.costOfSales.filter((c) => !c.key.startsWith('cogs')).reduce((a, x) => a + x.amount, 0),
     kpis: kpis(d, d),
-    collections: collections(d, d),
+    collections: c,
+    paid_out: out,
+    // What should be in the drawer: cash taken in, less cash paid out of it.
+    expected_cash: (c.byMethod.cash ?? 0) - out.total,
     arrivals: get<{ n: number }>("SELECT COUNT(*) n FROM reservations WHERE check_in = ? AND status IN ('checked_in','checked_out')", d)!.n,
     departures: get<{ n: number }>("SELECT COUNT(*) n FROM reservations WHERE status = 'checked_out' AND date(checked_out_at, '+1 hour') = ?", d)!.n,
   };
@@ -104,12 +123,12 @@ closeDay.post(
       }
       const report = dayReport(d);
       const expected = report.collections.byMethod;
-      const variance = counted - (expected.cash ?? 0);
+      const variance = counted - report.expected_cash;
       if (variance !== 0 && !notes) throw bad('The cash count does not match. Add a note explaining the difference.');
       run(
         `INSERT INTO day_closures (date, closed_by, expected_cash, counted_cash, expected_transfer, expected_pos, variance, notes, summary)
          VALUES (?,?,?,?,?,?,?,?,?)`,
-        d, user.id, expected.cash ?? 0, counted, expected.transfer ?? 0, expected.pos ?? 0, variance, notes || null, JSON.stringify(report),
+        d, user.id, report.expected_cash, counted, expected.transfer ?? 0, expected.pos ?? 0, variance, notes || null, JSON.stringify(report),
       );
       audit(user.id, variance === 0 ? 'close_day' : 'close_day_with_variance', 'day', null, { date: d, variance, closed_from: last });
       return { date: d, variance };

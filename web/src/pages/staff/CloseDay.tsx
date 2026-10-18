@@ -22,6 +22,8 @@ interface Report {
   expenses: number;
   kpis: Kpis;
   collections: { byMethod: Record<string, number>; bySource: Record<string, number>; total: number };
+  paid_out?: { lines: { what: string; v: number }[]; total: number };
+  expected_cash?: number;
   arrivals: number;
   departures: number;
 }
@@ -53,7 +55,8 @@ export default function CloseDay() {
   if (error) return <ErrorNote error={error} />;
   if (!data) return <LoadingRows rows={8} />;
   const r = data.closed?.summary ?? data.report;
-  const expected = data.closed?.expected_cash ?? r.collections.byMethod.cash ?? 0;
+  // Older closed days were saved before cash paid out was counted.
+  const expected = data.closed?.expected_cash ?? r.expected_cash ?? r.collections.byMethod.cash ?? 0;
   const variance = counted === '' ? null : Number(counted) - expected;
   const canClose = !data.closed && (!data.last_closed || data.date === addDays(data.last_closed, 1));
   const open = data.checks.no_shows.length + data.checks.overdue.length;
@@ -196,6 +199,14 @@ export default function CloseDay() {
             <Section title="Count the cash drawer" description="Count the notes and type the total. Check transfers and POS against the bank and POS slips.">
               <form className="grid gap-4" onSubmit={close}>
                 <dl className="space-y-1.5 text-sm">
+                  {!!r.paid_out?.total && (
+                    <>
+                      <div className="flex justify-between text-muted-foreground"><dt>Cash taken in</dt><Money value={r.collections.byMethod.cash ?? 0} /></div>
+                      {r.paid_out.lines.map((l) => (
+                        <div key={l.what} className="flex justify-between text-muted-foreground"><dt>Paid out: {l.what.toLowerCase()}</dt><Money value={-l.v} /></div>
+                      ))}
+                    </>
+                  )}
                   <div className="flex justify-between font-medium"><dt>Cash expected</dt><Money value={expected} /></div>
                   <div className="flex justify-between text-muted-foreground"><dt>Transfers to check</dt><Money value={r.collections.byMethod.transfer ?? 0} /></div>
                   <div className="flex justify-between text-muted-foreground"><dt>POS slips to check</dt><Money value={r.collections.byMethod.pos ?? 0} /></div>

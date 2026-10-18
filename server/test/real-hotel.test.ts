@@ -188,10 +188,12 @@ describe('closing the day', () => {
     assert.ok(ns);
     ok(await call(`/reservations/${ns.id}/no-show`, { cookie: desk, body: {} }));
 
-    assert.equal(view.report.collections.byMethod.cash, 84500, 'expected cash from the till and the front desk');
-    ok(await call('/close-day', { cookie: desk, body: { date: today(), counted_cash: 84500 } }), 403);
-    ok(await call('/close-day', { cookie: owner, body: { date: today(), counted_cash: 84000 } }), 400);
-    const closed = await call('/close-day', { cookie: owner, body: { date: today(), counted_cash: 84000, notes: '₦500 short — change given twice' } });
+    assert.equal(view.report.collections.byMethod.cash, 84500, 'cash taken in at the till and the front desk');
+    assert.equal(view.report.paid_out.total, 25000, 'the AC repair was paid in cash from the drawer');
+    assert.equal(view.report.expected_cash, 59500, 'the drawer should hold what came in less what went out');
+    ok(await call('/close-day', { cookie: desk, body: { date: today(), counted_cash: 59500 } }), 403);
+    ok(await call('/close-day', { cookie: owner, body: { date: today(), counted_cash: 59000 } }), 400);
+    const closed = await call('/close-day', { cookie: owner, body: { date: today(), counted_cash: 59000, notes: '₦500 short — change given twice' } });
     ok(closed, 201);
     assert.equal(closed.json.variance, -500);
 
