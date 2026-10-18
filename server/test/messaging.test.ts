@@ -46,7 +46,7 @@ after(() => {
 });
 
 const call = (path: string, cookie?: string, body?: unknown, method?: string) =>
-  fetch(base + path, { method: method ?? (body ? 'POST' : 'GET'), headers: { 'content-type': 'application/json', 'x-danest-request': '1', ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, json: await r.json() }));
+  fetch(base + path, { method: method ?? (body ? 'POST' : 'GET'), headers: { 'content-type': 'application/json', 'x-danest-request': '1', ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, json: (await r.json()) as any }));
 const settle = () => new Promise((r) => setTimeout(r, 150));
 
 describe('guest emails', () => {
