@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { ROLES } from '../shared/constants.ts';
 import { allow, loadSession } from './auth.ts';
 import { stream } from './live.ts';
+import { enforceLicence, licenceStatus } from './licence.ts';
 import { HttpError } from './lib.ts';
 import { closeDay } from './routes/closeday.ts';
 import { accounts } from './routes/accounts.ts';
@@ -93,6 +94,8 @@ export function createApp() {
     next();
   });
   api.use(loadSession);
+  api.use(enforceLicence);
+  api.get('/licence', allow(...ROLES), (_req, res) => res.json(licenceStatus()));
   api.get('/health', (_req, res) => res.json({ ok: true }));
   api.get('/public/monogram.svg', (_req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');

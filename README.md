@@ -213,3 +213,12 @@ A copy on the same disk does not survive losing the disk. To also send each back
 | `BACKUP_PASSPHRASE` | encrypts the off-site copies (falls back to `DANEST_SECRET`). **Store it somewhere other than the server**: it is the only way to read them |
 
 To restore, stop the app, then `node server/restore.ts <file>` (a `.db` from the backups folder) or `BACKUP_PASSPHRASE=… node server/restore.ts <file>.enc` (an off-site copy). It checks the backup's integrity first and keeps the current database beside it.
+
+## Selling to another hotel: licences
+
+Each hotel runs its own copy of the app (see `scripts/new-hotel.sh`). On a copy that is sold, set `LICENCE_REQUIRED=1` and `LICENCE_KEY=<key>`.
+
+- **Issue a key** (vendor only): `node scripts/licence.ts issue --hotel "Lagoon View Hotel" --expires 2027-10-31 --plan standard`. It is signed with the vendor's private key at `~/.config/hotel-licensing/licence-private.pem` (or `LICENCE_PRIVATE_KEY_FILE`). **Keep that file private and backed up**: anyone with it can issue licences, and without it no new ones can be issued. The matching public key is built into `server/licence.ts`.
+- **Check a key**: `node scripts/licence.ts check <key>`.
+- What the hotel sees: managers are warned 30 days before expiry; 14 days' grace follow; after that the staff screens are read-only until a new key is set. Guests can always book and pay, and the hotel can always sign in and download its data.
+- Danest's own installation does not set `LICENCE_REQUIRED`, so it is never held to a licence.

@@ -158,6 +158,7 @@ function Shell() {
             <ThemeMenu />
           </div>
         </header>
+        <LicenceBanner />
         <main className="mx-auto w-full max-w-[1400px] flex-1 p-4 md:p-6 lg:p-8" key={loc.pathname}>
           <Suspense fallback={<LoadingRows />}>
             <Routes>
@@ -285,3 +286,27 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
   );
 }
 
+
+interface Licence { state: 'not_required' | 'valid' | 'expiring' | 'grace' | 'expired' | 'missing' | 'invalid'; days: number | null; read_only_from: string | null; licence: { expires: string } | null }
+
+/** Warns managers before the licence runs out; tells everyone plainly when the system is read-only. */
+function LicenceBanner() {
+  const { user } = useAuth();
+  const { data } = useApi<Licence>('/licence');
+  if (!data || data.state === 'valid' || data.state === 'not_required') return null;
+  const manager = isManager(user!.role);
+  const readOnly = data.state === 'expired' || data.state === 'missing' || data.state === 'invalid';
+  if (!readOnly && !manager) return null;
+  const text = readOnly
+    ? data.state === 'expired'
+      ? 'The licence has run out, so the system is read-only: everything can be seen, nothing new can be recorded. Renew it to carry on.'
+      : 'This system has no valid licence, so it is read-only. Ask whoever installed it for a licence key.'
+    : data.state === 'grace'
+      ? `The licence ended on ${data.licence?.expires}. The system becomes read-only on ${data.read_only_from} unless it is renewed.`
+      : `The licence runs out on ${data.licence?.expires} (${data.days} day${data.days === 1 ? '' : 's'}). Renew it to avoid interruption.`;
+  return (
+    <div role="status" className={readOnly || data.state === 'grace' ? 'border-b bg-danger-soft px-4 py-2 text-sm text-destructive' : 'border-b bg-warning-soft px-4 py-2 text-sm text-warning'}>
+      {text}
+    </div>
+  );
+}
