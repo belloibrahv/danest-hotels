@@ -7,6 +7,7 @@ import { HttpError, addDays, bad, body, daysBetween, h, int, isDate, range, str,
 import { csv } from '../csv.ts';
 import { profitAndLoss } from './finance.ts';
 import { periodTaxes } from '../tax.ts';
+import { chartOfAccounts, journal, trialBalance } from '../ledger.ts';
 import { getSettings } from '../settings.ts';
 import { AGING, bucketOf, payables } from './purchasing.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
@@ -340,5 +341,41 @@ accounts.get(
         return [x?.base ?? 0, x?.amount ?? 0];
       })],
     ]);
+  }),
+);
+
+// ---------- ledger export: double entry for QuickBooks, Sage or Excel ----------
+
+accounts.get(
+  '/accounts/ledger',
+  books,
+  h((req, res) => {
+    const { from, to } = range(req);
+    if (daysBetween(from, to) > 400) throw bad('Export at most about a year at a time');
+    const lines = journal(from, to);
+    res.json({ from, to, ...trialBalance(lines), journals: new Set(lines.map((l) => l.date)).size, lines: lines.length });
+  }),
+);
+
+accounts.get(
+  '/accounts/journal.csv',
+  books,
+  h((req, res) => {
+    const { from, to } = range(req);
+    if (daysBetween(from, to) > 400) throw bad('Export at most about a year at a time');
+    // One journal per day, in the columns accounting packages import: QuickBooks Online "Journal entries", Sage, Xero manual journals.
+    csv(res, `danest-journal-${from}-to-${to}.csv`, [
+      ['JournalNo', 'JournalDate', 'AccountCode', 'AccountName', 'Debits', 'Credits', 'Description'],
+      ...journal(from, to).map((l) => [`DJ-${l.date.replace(/-/g, '')}`, l.date, l.account.code, l.account.name, l.debit || '', l.credit || '', l.memo]),
+    ]);
+    audit(currentUser(req).id, 'export', 'journal', null, { from, to });
+  }),
+);
+
+accounts.get(
+  '/accounts/chart.csv',
+  books,
+  h((_req, res) => {
+    csv(res, 'danest-chart-of-accounts.csv', [['Code', 'Name', 'Type'], ...chartOfAccounts().map((a) => [a.code, a.name, a.type])]);
   }),
 );

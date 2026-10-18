@@ -442,3 +442,22 @@ describe('the kitchen and services', () => {
     assert.equal((await call('/facility-income', { cookie: desk, body: { facility: 'spa', item: 'x', amount: 1, method: 'cash' } })).status, 400);
   });
 });
+
+describe('the ledger export balances', () => {
+  test('every daily journal and the period as a whole: debits equal credits', async () => {
+    const from = addDays(today(), -60);
+    const { journal } = await import('../ledger.ts');
+    const lines = journal(from, today());
+    const days = new Map<string, number>();
+    for (const l of lines) days.set(l.date, (days.get(l.date) ?? 0) + l.debit - l.credit);
+    assert.ok(lines.length > 100);
+    for (const [d, diff] of days) assert.equal(diff, 0, `journal for ${d}`);
+    const tb = (await call(`/accounts/ledger?from=${from}&to=${today()}`, { cookie: auditor })).json;
+    assert.equal(tb.debit, tb.credit);
+    const revenue = tb.rows.filter((r: any) => r.type === 'Income').reduce((a: number, r: any) => a - r.balance, 0);
+    const pnl = (await call(`/reports/pnl?from=${from}&to=${today()}`, { cookie: auditor })).json;
+    assert.equal(revenue, pnl.totalRevenue, 'the ledger and the profit & loss agree on revenue');
+    const res = await fetch(`${base}/accounts/journal.csv?from=${from}&to=${today()}`, { headers: { cookie: accountant } });
+    assert.match(await res.text(), /^﻿?"JournalNo","JournalDate","AccountCode","AccountName","Debits","Credits","Description"/);
+  });
+});

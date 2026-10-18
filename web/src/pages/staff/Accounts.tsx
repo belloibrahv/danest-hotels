@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, Banknote, Percent, Building2, Coins, Download, FileText, Landmark, Receipt, Scale, Truck, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Banknote, BookOpen, Percent, Building2, Coins, Download, FileText, Landmark, Receipt, Scale, Truck, Wallet } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
@@ -49,7 +49,7 @@ interface Overview {
 interface Bill { id: number; ref: string; supplier: string; supplier_id: number; date: string; due_date: string; invoice_no: string | null; total: number; paid: number; owed: number; days_late: number; bucket: string }
 interface Budget { month: string; elapsed: number; lines: { key: string; label: string; kind: string; budget: number | null; actual: number }[]; total_budget: number; total_actual: number }
 
-const TABS = ['overview', 'cashbook', 'receivables', 'payables', 'budget', 'taxes'] as const;
+const TABS = ['overview', 'cashbook', 'receivables', 'payables', 'budget', 'taxes', 'ledger'] as const;
 
 export default function Accounts() {
   const [params, setParams] = useSearchParams();
@@ -60,7 +60,7 @@ export default function Accounts() {
       <PageHeader
         title="Accounts"
         description="Every naira in and out, who owes the hotel, who the hotel owes, and the month's budget."
-        actions={(tab === 'overview' || tab === 'cashbook' || tab === 'taxes') && <DateRangePicker state={range} />}
+        actions={(tab === 'overview' || tab === 'cashbook' || tab === 'taxes' || tab === 'ledger') && <DateRangePicker state={range} />}
       />
       <Tabs value={tab} onValueChange={(t) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })}>
         <TabsList className="mb-4 h-9 max-w-full justify-start overflow-x-auto">
@@ -70,6 +70,7 @@ export default function Accounts() {
           <TabsTrigger value="payables"><ArrowUpRight /> We owe</TabsTrigger>
           <TabsTrigger value="budget"><Scale /> Budget</TabsTrigger>
           <TabsTrigger value="taxes"><Percent /> Taxes</TabsTrigger>
+          <TabsTrigger value="ledger"><BookOpen /> Ledger export</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab qs={range.qs} /></TabsContent>
         <TabsContent value="cashbook"><CashBook qs={range.qs} /></TabsContent>
@@ -77,6 +78,7 @@ export default function Accounts() {
         <TabsContent value="payables"><Payables /></TabsContent>
         <TabsContent value="budget"><BudgetTab /></TabsContent>
         <TabsContent value="taxes"><TaxesTab qs={range.qs} /></TabsContent>
+        <TabsContent value="ledger"><LedgerTab qs={range.qs} /></TabsContent>
       </Tabs>
     </>
   );
@@ -650,5 +652,71 @@ function TaxesTab({ qs }: { qs: string }) {
         </Section>
       </div>
     </>
+  );
+}
+
+// ---------- ledger export ----------
+
+interface Ledger {
+  rows: { code: string; name: string; type: string; debit: number; credit: number; balance: number }[];
+  debit: number;
+  credit: number;
+  journals: number;
+  lines: number;
+}
+
+function LedgerTab({ qs }: { qs: string }) {
+  const { data: d, error } = useApi<Ledger>(`/accounts/ledger?${qs}`);
+  if (error) return <ErrorNote error={error} />;
+  if (!d) return <LoadingRows rows={8} />;
+  const balanced = d.debit === d.credit;
+  return (
+    <div className="grid items-start gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <Section
+        title="Trial balance for the period"
+        description={`${d.journals} daily journals, ${d.lines.toLocaleString()} lines. Debit balances are positive.`}
+        action={balanced ? <StatusPill tone="success">Balanced</StatusPill> : <StatusPill tone="danger">Out by {naira(d.debit - d.credit)}</StatusPill>}
+        flush
+      >
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="pl-5">Account</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Debits</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Credits</TableHead>
+              <TableHead className="pr-5 text-right">Balance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {d.rows.map((r) => (
+              <TableRow key={r.code}>
+                <TableCell className="pl-5"><span className="mr-2 font-mono text-xs text-muted-foreground">{r.code}</span>{r.name}</TableCell>
+                <TableCell className="hidden text-right text-muted-foreground sm:table-cell"><Money value={r.debit} /></TableCell>
+                <TableCell className="hidden text-right text-muted-foreground sm:table-cell"><Money value={r.credit} /></TableCell>
+                <TableCell className="pr-5 text-right font-medium"><Money value={r.balance} /></TableCell>
+              </TableRow>
+            ))}
+            <TableRow className="font-semibold">
+              <TableCell className="pl-5">Total</TableCell>
+              <TableCell className="hidden text-right sm:table-cell"><Money value={d.debit} /></TableCell>
+              <TableCell className="hidden text-right sm:table-cell"><Money value={d.credit} /></TableCell>
+              <TableCell className="pr-5" />
+            </TableRow>
+          </TableBody>
+        </Table>
+      </Section>
+      <Section title="Take it to your accounting package" description="QuickBooks Online, Sage or Xero, or open it in Excel.">
+        <ol className="list-decimal space-y-3 pl-4 text-sm">
+          <li>
+            Set up the accounts once: <a className="font-medium underline" href="/api/accounts/chart.csv">download the chart of accounts</a> and create them in your package (or map each to one you already use).
+          </li>
+          <li>Enter your opening balances once, as at the first day you export. This file holds only the movements in the dates you choose.</li>
+          <li>
+            Each month, <a className="font-medium underline" href={`/api/accounts/journal.csv?${qs}`}>download the journal</a> and import it as journal entries. One journal per day, each one balanced.
+          </li>
+        </ol>
+        <Button className="mt-5 w-full" asChild><a href={`/api/accounts/journal.csv?${qs}`}><Download /> Download journal for these dates</a></Button>
+      </Section>
+    </div>
   );
 }
