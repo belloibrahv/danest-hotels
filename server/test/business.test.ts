@@ -372,3 +372,31 @@ describe('the website sells with its own photos and real reviews', () => {
     assert.equal((await call('/public/hotel')).json.bank_details, undefined, 'bank details stay private');
   });
 });
+
+describe('taxes are inside the prices, and bills show them', () => {
+  test('the split is exact: VAT and consumption tax each charged on the price before tax', async () => {
+    const { taxesIncluded } = await import('../../shared/constants.ts');
+    // ₦11,250 a night with VAT 7.5% and consumption tax 5% = ₦10,000 before tax.
+    assert.deepEqual(
+      taxesIncluded({ rooms: 11_250, bar: 1075 }, [{ name: 'VAT', rate: 7.5, applies: ['rooms', 'bar'] }, { name: 'Consumption tax', rate: 5, applies: ['rooms'] }]),
+      [{ name: 'VAT', rate: 7.5, base: 11_000, amount: 825 }, { name: 'Consumption tax', rate: 5, base: 10_000, amount: 500 }],
+    );
+  });
+
+  test('rates are checked, and invoices, receipts and the books pick them up', async () => {
+    const s = (await call('/settings', { cookie: manager })).json;
+    assert.equal((await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, taxes: [{ name: 'VAT', rate: 75, applies: ['rooms'] }] } })).status, 400);
+    assert.equal((await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, taxes: [{ name: 'VAT', rate: 7.5, applies: ['spa'] }] } })).status, 400);
+    ok(await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, tax_id: '12345678-0001', taxes: [{ name: 'VAT', rate: 7.5, applies: ['rooms', 'bar', 'facilities'] }, { name: 'Consumption tax', rate: 5, applies: ['rooms'] }] } }));
+    const stay = get<{ id: number }>("SELECT id FROM reservations WHERE status = 'checked_out' ORDER BY id DESC LIMIT 1")!.id;
+    const bill = (await call(`/reservations/${stay}`, { cookie: accountant })).json;
+    assert.deepEqual(bill.taxes.map((t: any) => t.name), ['VAT', 'Consumption tax']);
+    const sale = get<{ id: number }>('SELECT id FROM sales ORDER BY id DESC LIMIT 1')!.id;
+    assert.deepEqual((await call(`/sales/${sale}`, { cookie: manager })).json.taxes.map((t: any) => t.name), ['VAT'], 'the bar pays VAT only');
+    const report = (await call('/accounts/taxes', { cookie: auditor })).json;
+    const pnl = (await call('/reports/pnl', { cookie: auditor })).json;
+    assert.deepEqual(report.taxes, pnl.taxes, 'the tax report and the P&L agree');
+    assert.ok(report.taxes[0].amount > 0);
+    ok(await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, taxes: [] } }));
+  });
+});

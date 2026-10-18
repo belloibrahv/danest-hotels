@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { DEFAULT_SETTINGS, FACILITIES, ROLES, type HotelSettings } from '../../shared/constants.ts';
+import { DEFAULT_SETTINGS, FACILITIES, ROLES, TAX_GROUPS, type HotelSettings, type Tax } from '../../shared/constants.ts';
 import { allow, createSession, currentUser, hashPassword, passwordProblem, rateLimit } from '../auth.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, h, int, oneOf, str } from '../lib.ts';
@@ -10,6 +10,20 @@ import { publicImages } from './website.ts';
 /** First-run setup, hotel settings, room types, rooms and the facility price list. */
 export const config = Router();
 const manager = allow('manager');
+
+function taxesFrom(raw: unknown): Tax[] {
+  const list = Array.isArray(raw) ? raw : [];
+  if (list.length > 4) throw bad('Up to 4 taxes');
+  return list.map((x: unknown) => {
+    const o = (x ?? {}) as Record<string, unknown>;
+    const rate = typeof o.rate === 'string' ? Number(o.rate) : o.rate;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0 || rate > 30 || Math.round(rate * 100) !== rate * 100) throw bad('A tax rate is a percentage between 0.01 and 30');
+    const applies = Array.isArray(o.applies) ? [...new Set(o.applies)] : [];
+    const keys = TAX_GROUPS.map((g) => g.key) as string[];
+    if (!applies.length || applies.some((a) => !keys.includes(a as string))) throw bad('Choose what each tax applies to');
+    return { name: str(o, 'name', { max: 40 }), rate, applies: applies as Tax['applies'] };
+  });
+}
 
 // ---------- first-run: create the owner's account ----------
 
@@ -99,6 +113,8 @@ config.put(
         const o = (x ?? {}) as Record<string, unknown>;
         return { title: str(o, 'title', { max: 40 }), text: str(o, 'text', { max: 90, optional: true }) };
       }),
+      tax_id: opt('tax_id', 40),
+      taxes: taxesFrom(b.taxes),
       reviews: reviews.map((x: unknown) => {
         const o = (x ?? {}) as Record<string, unknown>;
         return { quote: str(o, 'quote', { min: 10, max: 400 }), name: str(o, 'name', { max: 60 }), detail: str(o, 'detail', { max: 60, optional: true }) };

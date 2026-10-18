@@ -140,6 +140,46 @@ export const HOTEL = {
 } as const;
 
 /**
+ * Taxes the hotel charges (VAT, state hotel consumption tax…). Prices are tax-inclusive: what a
+ * guest is quoted is what they pay, and bills show how much of it is tax. Each tax applies to the
+ * groups of sales the law puts it on.
+ */
+export const TAX_GROUPS = [
+  { key: 'rooms', label: 'Rooms', streams: ['rooms', 'cancellations'] },
+  { key: 'bar', label: 'Drinks & confectionery', streams: ['drinks', 'confectionery'] },
+  { key: 'food', label: 'Food', streams: ['food'] },
+  { key: 'facilities', label: 'Gym, pool & lounge', streams: ['gym', 'pool', 'lounge'] },
+  { key: 'services', label: 'Laundry & other services', streams: ['laundry', 'room_service', 'transport', 'extras'] },
+] as const;
+export type TaxGroup = (typeof TAX_GROUPS)[number]['key'];
+export interface Tax {
+  name: string;
+  /** Percent, up to two decimals (7.5 = 7.5%). */
+  rate: number;
+  applies: TaxGroup[];
+}
+
+/**
+ * The tax inside tax-inclusive amounts, per tax. Several taxes on one group are each charged on
+ * the price before tax, as Nigerian VAT and consumption tax are.
+ */
+export function taxesIncluded(grossByGroup: Partial<Record<TaxGroup, number>>, taxes: Tax[]) {
+  const out = taxes.map((t) => ({ name: t.name, rate: t.rate, base: 0, amount: 0 }));
+  for (const [group, gross] of Object.entries(grossByGroup) as [TaxGroup, number][]) {
+    if (!gross) continue;
+    const on = taxes.map((t, i) => [t, i] as const).filter(([t]) => t.applies.includes(group));
+    const total = on.reduce((a, [t]) => a + t.rate, 0);
+    if (!total) continue;
+    const base = gross / (1 + total / 100);
+    for (const [t, i] of on) {
+      out[i].base += base;
+      out[i].amount += (base * t.rate) / 100;
+    }
+  }
+  return out.filter((t) => t.base > 0).map((t) => ({ ...t, base: Math.round(t.base), amount: Math.round(t.amount) }));
+}
+
+/**
  * Everything the owner can change about how the hotel presents itself. Blank values are
  * simply not shown — the website never invents a phone number or a promise.
  */
@@ -159,6 +199,9 @@ export interface HotelSettings {
   reviews: { quote: string; name: string; detail: string }[];
   /** Share of the stay a guest can pay online when booking (0 = online payment off). */
   deposit_percent: number;
+  /** Tax registration shown on invoices (e.g. TIN), and the taxes included in prices. */
+  tax_id: string;
+  taxes: Tax[];
 }
 
 export const DEFAULT_SETTINGS: HotelSettings = {
@@ -175,6 +218,8 @@ export const DEFAULT_SETTINGS: HotelSettings = {
   highlights: [],
   reviews: [],
   deposit_percent: 0,
+  tax_id: '',
+  taxes: [],
 };
 
 /** How a supplier bill was settled when stock arrived. 'credit' leaves it owing until the accountant pays it. */

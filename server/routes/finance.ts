@@ -5,6 +5,7 @@ import { assertOpen, lastClosedDate } from '../days.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
 import { csv } from '../csv.ts';
+import { periodTaxes } from '../tax.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, date, daysBetween, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -245,6 +246,8 @@ export function profitAndLoss(from: string, to: string) {
     collections: collections(from, to),
     stockPurchases: get<{ v: number }>("SELECT COALESCE(SUM(total),0) v FROM purchases WHERE status = 'received' AND date BETWEEN ? AND ?", from, to)!.v,
     stockValue: get<{ v: number }>('SELECT COALESCE(SUM(stock * avg_cost),0) v FROM products WHERE active = 1')!.v,
+    // Memo: the tax inside that revenue, which belongs to government.
+    taxes: periodTaxes(STREAMS.map((s) => ({ key: s.key, amount: revenue[s.key] }))).taxes,
   };
 }
 
@@ -297,6 +300,7 @@ finance.get(
     rows.push(['Cost of sales', 'Total cost of sales', p.totalCostOfSales], ['', 'Gross profit', p.grossProfit]);
     for (const r of p.operating) rows.push(['Operating expenses', r.label, r.amount]);
     rows.push(['Operating expenses', 'Total operating expenses', p.totalOperating], ['', 'Net profit', p.netProfit], [], ['Memo', 'Stock purchased in period', p.stockPurchases], ['Memo', 'Closing stock value (at cost)', p.stockValue]);
+    for (const t of p.taxes) rows.push(['Memo', `${t.name} (${t.rate}%) included in revenue`, t.amount]);
     rows.push([], ['KPI', 'Room-nights sold', p.kpis.roomNightsSold], ['KPI', 'Occupancy %', Math.round(p.kpis.occupancy * 1000) / 10], ['KPI', 'ADR (average daily rate)', p.kpis.adr], ['KPI', 'RevPAR', p.kpis.revpar]);
     rows.push([], ['Collected', 'Cash', p.collections.byMethod.cash], ['Collected', 'Bank transfer', p.collections.byMethod.transfer], ['Collected', 'POS / card', p.collections.byMethod.pos], ['Collected', 'Paid online (Paystack)', p.collections.byMethod.online ?? 0], ['Collected', 'Total collected', p.collections.total]);
     csv(res, `danest-pnl-${from}-to-${to}.csv`, rows);

@@ -35,6 +35,7 @@ export interface PnL {
   collections: { byMethod: Record<string, number>; bySource: Record<string, number>; total: number };
   stockPurchases: number;
   stockValue: number;
+  taxes?: { name: string; rate: number; base: number; amount: number }[];
 }
 
 interface Dash {

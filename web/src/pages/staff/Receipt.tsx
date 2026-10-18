@@ -18,6 +18,7 @@ interface Sale {
   room_number: string | null;
   guest_name: string | null;
   items: { name: string; qty: number; unit_price: number }[];
+  taxes?: { name: string; rate: number; amount: number }[];
 }
 
 /** A bar & shop receipt sized for an 80 mm receipt printer; prints just as well on A4. */
@@ -62,6 +63,13 @@ export default function Receipt() {
           {s.staff && <span>Served by {s.staff.split(' ')[0]}</span>}
         </div>
         {room && s.guest_name && <div className="mt-1 text-xs text-muted-foreground">Guest: {s.guest_name}</div>}
+        {s.taxes?.map((t) => (
+          <div key={t.name} className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+            <span>Includes {t.name} {t.rate}%</span>
+            <span className="tabular-nums">{naira(t.amount)}</span>
+          </div>
+        ))}
+        {hotel.tax_id && <div className="mt-1 text-[11px] text-muted-foreground">TIN {hotel.tax_id}</div>}
         <footer className="mt-5 border-t border-dashed pt-4 text-center text-[11px] text-muted-foreground">
           {hotel.invoice_note || 'Thank you.'}
           {hotel.tagline && <div className="mt-1 italic">{hotel.tagline}</div>}

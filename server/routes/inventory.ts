@@ -3,6 +3,7 @@ import { BOOKS, CHARGE_METHODS, PRODUCT_CATEGORIES, hasRole } from '../../shared
 import { allow, currentUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
 import { publish } from '../live.ts';
+import { saleTaxes } from '../tax.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, bad, body, code, date, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -222,7 +223,7 @@ inventory.get(
     );
     if (!sale || (!hasRole(req.user!.role, BOOKS) && sale.date !== today())) throw new HttpError(404, 'Receipt not found');
     const items = all('SELECT si.qty, si.unit_price, p.name FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? ORDER BY si.id', sale.id);
-    res.json({ ...sale, items });
+    res.json({ ...sale, items, taxes: saleTaxes(sale.id) });
   }),
 );
 

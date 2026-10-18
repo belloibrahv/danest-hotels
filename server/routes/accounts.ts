@@ -6,6 +6,8 @@ import { all, audit, get, run } from '../db.ts';
 import { HttpError, addDays, bad, body, daysBetween, h, int, isDate, range, str, today } from '../lib.ts';
 import { csv } from '../csv.ts';
 import { profitAndLoss } from './finance.ts';
+import { periodTaxes } from '../tax.ts';
+import { getSettings } from '../settings.ts';
 import { AGING, bucketOf, payables } from './purchasing.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 
@@ -290,5 +292,53 @@ accounts.get(
       budget: budget(today().slice(0, 7)),
       open_queries: get<{ n: number }>("SELECT COUNT(*) n FROM audit_queries WHERE status = 'open'")!.n,
     });
+  }),
+);
+
+// ---------- taxes: what is owed to government ----------
+
+/** Tax inside each month's earned revenue, for filing. Prices are tax-inclusive, so this is part of what was earned. */
+function taxReport(from: string, to: string) {
+  const months: { month: string; from: string; to: string; taxes: { name: string; rate: number; base: number; amount: number }[] }[] = [];
+  for (let m = from.slice(0, 7); m <= to.slice(0, 7); m = addDays(`${m}-28`, 4).slice(0, 7)) {
+    const r = monthRange(m);
+    const a = r.from < from ? from : r.from;
+    const b = r.to > to ? to : r.to;
+    months.push({ month: m, from: a, to: b, taxes: periodTaxes(profitAndLoss(a, b).revenue).taxes });
+  }
+  const whole = periodTaxes(profitAndLoss(from, to).revenue);
+  return { from, to, configured: getSettings().taxes, tax_id: getSettings().tax_id, ...whole, months };
+}
+
+accounts.get(
+  '/accounts/taxes',
+  books,
+  h((req, res) => {
+    const { from, to } = range(req);
+    res.json(taxReport(from, to));
+  }),
+);
+
+accounts.get(
+  '/accounts/taxes.csv',
+  books,
+  h((req, res) => {
+    const { from, to } = range(req);
+    const t = taxReport(from, to);
+    const names = t.configured.map((x) => `${x.name} (${x.rate}%)`);
+    csv(res, `danest-taxes-${from}-to-${to}.csv`, [
+      ['Danest Hotel & Suites — Taxes included in revenue'],
+      [`${from} to ${to}`, t.tax_id ? `Tax ID ${t.tax_id}` : ''],
+      [],
+      ['Month', ...names.flatMap((n) => [`${n} — sales before tax`, `${n} — tax`])],
+      ...t.months.map((m) => [m.month, ...t.configured.flatMap((c) => {
+        const x = m.taxes.find((y) => y.name === c.name);
+        return [x?.base ?? 0, x?.amount ?? 0];
+      })]),
+      ['Total', ...t.configured.flatMap((c) => {
+        const x = t.taxes.find((y) => y.name === c.name);
+        return [x?.base ?? 0, x?.amount ?? 0];
+      })],
+    ]);
   }),
 );

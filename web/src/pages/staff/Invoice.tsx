@@ -87,6 +87,13 @@ export default function Invoice() {
                 <td className="py-1.5 text-right tabular-nums">+{naira(x.amount)}</td>
               </tr>
             ))}
+            {r.taxes?.map((t) => (
+              <tr key={t.name} className="text-xs text-muted-foreground">
+                <td />
+                <td className="py-1">Includes {t.name} at {t.rate}% on {naira(t.base)}</td>
+                <td className="py-1 text-right tabular-nums">{naira(t.amount)}</td>
+              </tr>
+            ))}
             <tr className="border-t-2 border-foreground text-base font-semibold">
               <td />
               <td className="py-3">{balance < 0 ? 'Credit due to guest' : 'Balance due'}</td>
@@ -98,6 +105,7 @@ export default function Invoice() {
         <footer className="mt-10 flex flex-wrap justify-between gap-6 text-xs text-muted-foreground">
           <div className="max-w-sm space-y-1">
             <p>{hotel.invoice_note}</p>
+            {hotel.tax_id && <p>Tax ID (TIN): {hotel.tax_id}</p>}
             {hotel.bank_details && balance > 0 && <p><b className="text-foreground">Pay by transfer:</b> {hotel.bank_details}</p>}
             {hotel.tagline && <p className="italic">{hotel.tagline}</p>}
           </div>

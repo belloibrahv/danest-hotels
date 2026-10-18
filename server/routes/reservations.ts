@@ -13,6 +13,7 @@ import { allow, currentUser, type SessionUser } from '../auth.ts';
 import { assertOpen } from '../days.ts';
 import { priceStay, saveNights, syncTotals, trimNights } from '../pricing.ts';
 import { logRoom } from './housekeeping.ts';
+import { reservationTaxes } from '../tax.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, code, date, daysBetween, h, int, isDate, oneOf, str, today } from '../lib.ts';
 
@@ -319,7 +320,7 @@ reservations.get(
       lines.push({ date: f.date, kind: f.facility, description: f.item, amount: f.amount });
     }
     lines.sort((a, b) => a.date.localeCompare(b.date));
-    res.json({ ...r, payments, refunds, folio: lines, overstay: overstay(load(id)) });
+    res.json({ ...r, payments, refunds, folio: lines, overstay: overstay(load(id)), taxes: reservationTaxes(id) });
   }),
 );
 

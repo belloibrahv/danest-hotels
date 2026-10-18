@@ -31,6 +31,7 @@ import { useApi, useSubmit } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 
 export interface Reservation {
+  taxes?: { name: string; rate: number; base: number; amount: number }[];
   id: number;
   code: string;
   check_in: string;

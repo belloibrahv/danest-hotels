@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, Banknote, Building2, Coins, Download, FileText, Landmark, Receipt, Scale, Truck, Wallet } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Banknote, Percent, Building2, Coins, Download, FileText, Landmark, Receipt, Scale, Truck, Wallet } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
@@ -49,7 +49,7 @@ interface Overview {
 interface Bill { id: number; ref: string; supplier: string; supplier_id: number; date: string; due_date: string; invoice_no: string | null; total: number; paid: number; owed: number; days_late: number; bucket: string }
 interface Budget { month: string; elapsed: number; lines: { key: string; label: string; kind: string; budget: number | null; actual: number }[]; total_budget: number; total_actual: number }
 
-const TABS = ['overview', 'cashbook', 'receivables', 'payables', 'budget'] as const;
+const TABS = ['overview', 'cashbook', 'receivables', 'payables', 'budget', 'taxes'] as const;
 
 export default function Accounts() {
   const [params, setParams] = useSearchParams();
@@ -60,7 +60,7 @@ export default function Accounts() {
       <PageHeader
         title="Accounts"
         description="Every naira in and out, who owes the hotel, who the hotel owes, and the month's budget."
-        actions={(tab === 'overview' || tab === 'cashbook') && <DateRangePicker state={range} />}
+        actions={(tab === 'overview' || tab === 'cashbook' || tab === 'taxes') && <DateRangePicker state={range} />}
       />
       <Tabs value={tab} onValueChange={(t) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })}>
         <TabsList className="mb-4 h-9 max-w-full justify-start overflow-x-auto">
@@ -69,12 +69,14 @@ export default function Accounts() {
           <TabsTrigger value="receivables"><ArrowDownLeft /> Owed to us</TabsTrigger>
           <TabsTrigger value="payables"><ArrowUpRight /> We owe</TabsTrigger>
           <TabsTrigger value="budget"><Scale /> Budget</TabsTrigger>
+          <TabsTrigger value="taxes"><Percent /> Taxes</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab qs={range.qs} /></TabsContent>
         <TabsContent value="cashbook"><CashBook qs={range.qs} /></TabsContent>
         <TabsContent value="receivables"><Receivables /></TabsContent>
         <TabsContent value="payables"><Payables /></TabsContent>
         <TabsContent value="budget"><BudgetTab /></TabsContent>
+        <TabsContent value="taxes"><TaxesTab qs={range.qs} /></TabsContent>
       </Tabs>
     </>
   );
@@ -575,5 +577,78 @@ function BudgetTab() {
         </Section>
       )}
     </div>
+  );
+}
+
+// ---------- taxes ----------
+
+type TaxLine = { name: string; rate: number; base: number; amount: number };
+interface TaxData {
+  configured: { name: string; rate: number; applies: string[] }[];
+  tax_id: string;
+  taxes: TaxLine[];
+  groups: { key: string; label: string; gross: number; taxes: TaxLine[] }[];
+  months: { month: string; from: string; to: string; taxes: TaxLine[] }[];
+}
+
+function TaxesTab({ qs }: { qs: string }) {
+  const { user } = useAuth();
+  const v = useLive('money', 'sales', 'reservations');
+  const { data: d, error } = useApi<TaxData>(`/accounts/taxes?${qs}&v=${v}`);
+  if (error) return <ErrorNote error={error} />;
+  if (!d) return <LoadingRows rows={6} />;
+  if (!d.configured.length)
+    return (
+      <Card className="py-0 shadow-xs">
+        <EmptyState icon={Percent} title="No taxes set up" action={can(user, 'manager') && <Button size="sm" asChild><Link to="/staff/settings">Set up taxes</Link></Button>}>
+          Add VAT and any state consumption tax under Settings → Hotel details. Prices stay as they are; this page then shows the tax inside your takings.
+        </EmptyState>
+      </Card>
+    );
+  return (
+    <>
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        {d.configured.map((c) => {
+          const t = d.taxes.find((x) => x.name === c.name);
+          return <StatCard key={c.name} icon={Percent} label={`${c.name} (${c.rate}%)`} value={naira(t?.amount ?? 0)} hint={`On ${nairaShort(t?.base ?? 0)} of sales before tax`} />;
+        })}
+        <StatCard label="Owed to government" value={naira(d.taxes.reduce((a, t) => a + t.amount, 0))} hint={d.tax_id ? `TIN ${d.tax_id}` : 'Add your TIN in Settings'} />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section title="By month" description="For filing returns. Revenue counts when it is earned, as on the profit & loss." action={<Button variant="ghost" size="sm" asChild><a href={`/api/accounts/taxes.csv?${qs}`}><Download /> Export</a></Button>} flush>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="pl-5">Month</TableHead>
+                {d.configured.map((c) => <TableHead key={c.name} className="text-right last:pr-5">{c.name}</TableHead>)}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {d.months.map((m) => (
+                <TableRow key={m.month}>
+                  <TableCell className="pl-5">{fmtMonth(m.month)}</TableCell>
+                  {d.configured.map((c) => <TableCell key={c.name} className="text-right last:pr-5"><Money value={m.taxes.find((x) => x.name === c.name)?.amount ?? 0} /></TableCell>)}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
+        <Section title="By what was sold" description="Sales including tax, and the tax inside them" flush>
+          <Table>
+            <TableBody>
+              {d.groups.filter((g) => g.gross > 0).map((g) => (
+                <TableRow key={g.key}>
+                  <TableCell className="pl-5">
+                    <div className="font-medium">{g.label}</div>
+                    <div className="text-xs text-muted-foreground">{g.taxes.length ? g.taxes.map((t) => `${t.name} ${naira(t.amount)}`).join(' · ') : 'No tax applies'}</div>
+                  </TableCell>
+                  <TableCell className="pr-5 text-right"><Money value={g.gross} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Section>
+      </div>
+    </>
   );
 }

@@ -2,11 +2,12 @@ import { BedDouble, CreditCard, ImageIcon, MessageCircle, Plus, Trash2, Upload }
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { FACILITIES, FACILITY_LABELS, type Facility, type HotelSettings } from '../../../../shared/constants';
+import { FACILITIES, FACILITY_LABELS, TAX_GROUPS, type Facility, type HotelSettings } from '../../../../shared/constants';
 import { Field, MoneyInput, SelectField, useConfirm } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -56,7 +57,7 @@ function HotelForm() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      await api('/settings', { method: 'PUT', body: { ...f, highlights: f.highlights.filter((h) => h.title.trim()) } });
+      await api('/settings', { method: 'PUT', body: { ...f, highlights: f.highlights.filter((h) => h.title.trim()), taxes: f.taxes.map((t) => ({ ...t, rate: Number(t.rate) })) } });
       toast.success('Saved', { description: 'The website, invoices and messages now use these details.' });
       reload();
     });
@@ -84,6 +85,43 @@ function HotelForm() {
               <Textarea value={f.bank_details} onChange={(e) => set('bank_details', e.target.value)} maxLength={300} rows={2} placeholder="Bank · Account name · Account number" />
             </Field>
             <Field label="Closing note"><Input value={f.invoice_note} onChange={(e) => set('invoice_note', e.target.value)} maxLength={300} /></Field>
+          </div>
+        </Section>
+        <Section
+          title="Taxes"
+          description="Your prices include these taxes: guests pay the price you set, and bills show how much of it is tax. Check the rates with your accountant."
+          action={f.taxes.length < 4 && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => set('taxes', [...f.taxes, f.taxes.length ? { name: 'Consumption tax', rate: 5, applies: ['rooms', 'food', 'bar'] } : { name: 'VAT', rate: 7.5, applies: TAX_GROUPS.map((g) => g.key) }])}>
+              <Plus /> Add a tax
+            </Button>
+          )}
+        >
+          <div className="grid gap-4">
+            <Field label="Tax ID (TIN)" hint="Printed on invoices and receipts"><Input value={f.tax_id} onChange={(e) => set('tax_id', e.target.value)} maxLength={40} placeholder="Optional" /></Field>
+            {f.taxes.length === 0 && <p className="text-sm text-muted-foreground">No taxes set. Bills show no tax lines.</p>}
+            {f.taxes.map((t, i) => {
+              const upd = (patch: Partial<typeof t>) => set('taxes', f.taxes.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+              return (
+                <div key={i} className="grid gap-3 rounded-lg border p-3">
+                  <div className="grid grid-cols-[1fr_110px_auto] gap-2">
+                    <Input value={t.name} onChange={(e) => upd({ name: e.target.value })} maxLength={40} aria-label="Tax name" required />
+                    <div className="relative">
+                      <Input inputMode="decimal" className="pr-7 tabular-nums" value={String(t.rate)} onChange={(e) => upd({ rate: e.target.value.replace(/[^\d.]/g, '') as unknown as number })} aria-label="Rate" required />
+                      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${t.name}`} onClick={() => set('taxes', f.taxes.filter((_, j) => j !== i))}><Trash2 /></Button>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                    {TAX_GROUPS.map((g) => (
+                      <label key={g.key} className="flex items-center gap-2">
+                        <Checkbox checked={t.applies.includes(g.key)} onCheckedChange={(on) => upd({ applies: on ? [...t.applies, g.key] : t.applies.filter((a) => a !== g.key) })} />
+                        {g.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Section>
       </div>

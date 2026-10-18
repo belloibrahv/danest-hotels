@@ -103,6 +103,7 @@ export default function Reports() {
                 <Line label="Net profit" value={p.netProfit} total />
                 <Line label="Memo: stock bought in this period" value={p.stockPurchases} muted />
                 <Line label="Memo: stock on the shelf today (at cost)" value={p.stockValue} muted />
+                {p.taxes?.map((t) => <Line key={t.name} label={`Memo: ${t.name} (${t.rate}%) included in revenue, owed to government`} value={t.amount} muted />)}
               </div>
             </Section>
 
