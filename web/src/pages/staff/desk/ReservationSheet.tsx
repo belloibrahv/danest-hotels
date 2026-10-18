@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Building2, CalendarDays, Check, LogOut, MessageCircle, Phone, Printer, Send } from 'lucide-react';
+import { ArrowLeftRight, Building2, CalendarDays, Check, LogOut, Mail, MessageCircle, Phone, Printer, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
@@ -558,7 +558,7 @@ function CompanyPanel({ r, busy, onSave }: { r: Reservation; busy: boolean; onSa
 interface Msg {
   id: number;
   template: MessageTemplate;
-  channel: 'sms' | 'whatsapp';
+  channel: 'sms' | 'whatsapp' | 'email';
   to_phone: string;
   body: string;
   status: 'sent' | 'failed' | 'manual';
@@ -568,11 +568,11 @@ interface Msg {
 }
 
 function Messages({ reservationId }: { reservationId: number }) {
-  const status = useApi<{ sms: boolean }>('/messaging/status');
+  const status = useApi<{ sms: boolean; email: boolean }>('/messaging/status');
   const log = useApi<Msg[]>(`/reservations/${reservationId}/messages`);
   const [template, setTemplate] = useState<MessageTemplate>('booking_confirmed');
   const { busy, error, submit } = useSubmit();
-  const send = (channel: 'sms' | 'whatsapp') =>
+  const send = (channel: 'sms' | 'whatsapp' | 'email') =>
     submit(async () => {
       const r = await api<{ status: string; link?: string; error?: string }>(`/reservations/${reservationId}/messages`, { body: { template, channel } });
       if (r.link) window.open(r.link, '_blank', 'noopener');
@@ -594,6 +594,11 @@ function Messages({ reservationId }: { reservationId: number }) {
           {status.data?.sms && (
             <Button variant="outline" disabled={busy} onClick={() => send('sms')}>
               <Send /> Send SMS
+            </Button>
+          )}
+          {status.data?.email && (
+            <Button variant="outline" disabled={busy} onClick={() => send('email')}>
+              <Mail /> Email
             </Button>
           )}
         </div>

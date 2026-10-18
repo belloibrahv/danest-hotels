@@ -69,7 +69,7 @@ config.get(
     const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms r JOIN room_types t ON t.id = r.room_type_id WHERE r.active = 1 AND t.active = 1')!.n;
     const img = publicImages();
     res.json({
-      ...s, bank_details: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0,
+      ...s, bank_details: undefined, summary_phone: undefined, summary_email: undefined, tax_id: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0,
       images: { hero: img.hero, gallery: img.gallery, facilities: img.facilities },
     });
   }),
@@ -114,6 +114,8 @@ config.put(
         return { title: str(o, 'title', { max: 40 }), text: str(o, 'text', { max: 90, optional: true }) };
       }),
       tax_id: opt('tax_id', 40),
+      summary_phone: str(b, 'summary_phone', { max: 20, optional: true, pattern: PHONE_RE }),
+      summary_email: str(b, 'summary_email', { max: 254, optional: true, pattern: EMAIL_RE }),
       taxes: taxesFrom(b.taxes),
       reviews: reviews.map((x: unknown) => {
         const o = (x ?? {}) as Record<string, unknown>;

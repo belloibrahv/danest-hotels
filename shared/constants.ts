@@ -226,6 +226,9 @@ export interface HotelSettings {
   /** Tax registration shown on invoices (e.g. TIN), and the taxes included in prices. */
   tax_id: string;
   taxes: Tax[];
+  /** Where the end-of-day summary goes when the day is closed. Never shown on the website. */
+  summary_phone: string;
+  summary_email: string;
 }
 
 export const DEFAULT_SETTINGS: HotelSettings = {
@@ -244,6 +247,8 @@ export const DEFAULT_SETTINGS: HotelSettings = {
   deposit_percent: 0,
   tax_id: '',
   taxes: [],
+  summary_phone: '',
+  summary_email: '',
 };
 
 /** How a supplier bill was settled when stock arrived. 'credit' leaves it owing until the accountant pays it. */

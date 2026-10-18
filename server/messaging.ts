@@ -11,6 +11,8 @@ import { CHARGES_SQL, PAID_SQL } from './routes/reservations.ts';
  */
 
 export const smsEnabled = () => !!process.env.TERMII_API_KEY && !!process.env.TERMII_SENDER_ID;
+/** Email through Resend (resend.com): RESEND_API_KEY, and EMAIL_FROM such as "Danest Hotel <bookings@danesthotels.com>" on a verified domain. */
+export const emailEnabled = () => !!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM;
 
 /** 0803 123 4567 → 2348031234567 */
 export function intlPhone(phone: string) {
@@ -29,10 +31,10 @@ const time12 = (t: string) => {
 
 export function compose(template: MessageTemplate, reservationId: number) {
   const r = get<{
-    code: string; check_in: string; check_out: string; nights: number; total: number; guest_name: string; guest_phone: string;
+    code: string; check_in: string; check_out: string; nights: number; total: number; guest_name: string; guest_phone: string; guest_email: string | null;
     room_type: string; paid: number; charges: number;
   }>(
-    `SELECT r.code, r.check_in, r.check_out, r.nights, r.total, g.name AS guest_name, g.phone AS guest_phone, t.name AS room_type,
+    `SELECT r.code, r.check_in, r.check_out, r.nights, r.total, g.name AS guest_name, g.phone AS guest_phone, g.email AS guest_email, t.name AS room_type,
             ${PAID_SQL} AS paid,
             ${CHARGES_SQL} AS charges
        FROM reservations r JOIN guests g ON g.id = r.guest_id JOIN room_types t ON t.id = r.room_type_id WHERE r.id = ?`,
@@ -51,10 +53,29 @@ export function compose(template: MessageTemplate, reservationId: number) {
     balance_due: `Hello ${first}, a gentle reminder that ${ngn(Math.max(0, balance))} is outstanding on your ${h.name} bill (ref ${r.code}).${h.bank_details ? ` Transfer to: ${h.bank_details}.` : ''}${contact}`,
     thank_you: `Thank you for staying at ${h.name}, ${first}. We hope to see you again soon. ${h.tagline ? `${h.tagline}.` : ''}`.trim(),
   };
-  return { to: intlPhone(r.guest_phone), text: body[template] };
+  const subject: Record<MessageTemplate, string> = {
+    booking_received: `We have your booking request — ${r.code}`,
+    booking_confirmed: `Your stay is confirmed — ${r.code}`,
+    pre_arrival: `See you tomorrow at ${h.name}`,
+    balance_due: `Your ${h.name} bill — ${r.code}`,
+    thank_you: `Thank you for staying with us`,
+  };
+  return { to: intlPhone(r.guest_phone), email: r.guest_email, subject: subject[template], text: body[template] };
 }
 
-async function sendSms(to: string, text: string) {
+export async function sendEmail(to: string, subject: string, text: string) {
+  const res = await fetch(process.env.EMAIL_BASE_URL ?? 'https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+    body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, text }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
+  if (!res.ok || !data.id) throw new Error(data.message ?? `Email provider returned ${res.status}`);
+  return data.id;
+}
+
+export async function sendSms(to: string, text: string) {
   const res = await fetch(process.env.TERMII_BASE_URL ?? 'https://api.ng.termii.com/api/sms/send', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -66,9 +87,23 @@ async function sendSms(to: string, text: string) {
   return data.message_id;
 }
 
-/** Sends (SMS) or prepares (WhatsApp) a message, and keeps a record either way. */
-export async function deliver(template: MessageTemplate, reservationId: number, userId: number | null, channel: 'sms' | 'whatsapp') {
-  const { to, text } = compose(template, reservationId);
+/** Sends (SMS, email) or prepares (WhatsApp) a message, and keeps a record either way. */
+export async function deliver(template: MessageTemplate, reservationId: number, userId: number | null, channel: 'sms' | 'whatsapp' | 'email', emailTo?: string) {
+  const composed = compose(template, reservationId);
+  const { to, subject, text } = composed;
+  const email = emailTo ?? composed.email;
+  if (channel === 'email') {
+    if (!emailEnabled()) throw new HttpError(503, 'Email is not set up');
+    if (!email) throw new HttpError(409, 'This guest has no email address');
+    try {
+      const ref = await sendEmail(email, subject, text);
+      run("INSERT INTO messages (reservation_id, template, channel, to_phone, body, status, provider_ref, created_by) VALUES (?,?, 'email', ?, ?, 'sent', ?, ?)", reservationId, template, email, text, ref, userId);
+      return { status: 'sent' as const, text };
+    } catch (e) {
+      run("INSERT INTO messages (reservation_id, template, channel, to_phone, body, status, error, created_by) VALUES (?,?, 'email', ?, ?, 'failed', ?, ?)", reservationId, template, email, text, (e as Error).message.slice(0, 300), userId);
+      return { status: 'failed' as const, text, error: (e as Error).message };
+    }
+  }
   if (channel === 'sms' && smsEnabled()) {
     try {
       const ref = await sendSms(to, text);
@@ -81,4 +116,16 @@ export async function deliver(template: MessageTemplate, reservationId: number, 
   }
   run("INSERT INTO messages (reservation_id, template, channel, to_phone, body, status, created_by) VALUES (?,?, 'whatsapp', ?, ?, 'manual', ?)", reservationId, template, to, text, userId);
   return { status: 'manual' as const, text, link: `https://wa.me/${to}?text=${encodeURIComponent(text)}` };
+}
+
+/**
+ * Booking emails go out on their own when the guest gave an address. Never blocks the booking; a
+ * failure is on record. From the public form, only the address typed on that form is used: a
+ * stranger who types someone's phone number must not trigger mail to the email on their profile.
+ */
+export function autoEmail(template: MessageTemplate, reservationId: number, onlyTo?: string) {
+  if (!emailEnabled()) return;
+  const email = onlyTo ?? get<{ email: string | null }>('SELECT g.email FROM reservations r JOIN guests g ON g.id = r.guest_id WHERE r.id = ?', reservationId)?.email;
+  if (!email) return;
+  deliver(template, reservationId, null, 'email', email).catch((e) => console.error('auto email', e));
 }

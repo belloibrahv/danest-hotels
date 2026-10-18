@@ -5,6 +5,9 @@ import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, date, h, int, isDate, str, today } from '../lib.ts';
 import { collections, kpis, profitAndLoss } from './finance.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
+import { emailEnabled, intlPhone, sendEmail, sendSms, smsEnabled } from '../messaging.ts';
+import { getSettings } from '../settings.ts';
+import { monthRange, targetsFor } from './accounts.ts';
 
 /**
  * Night audit. Once a day the manager reviews what is left open (no-shows, guests past
@@ -64,6 +67,37 @@ function openStays(d: string) {
   };
 }
 
+const k = (n: number) => (Math.abs(n) >= 1e6 ? `₦${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `₦${Math.round(n / 1e3)}k` : `₦${n}`);
+
+/** The day in one paragraph, for the owner's phone. */
+export function ownerSummary(d: string, variance: number) {
+  const h = getSettings();
+  const r = dayReport(d);
+  const sum = (keys: string[]) => r.revenue.filter((x) => keys.includes(x.key)).reduce((a, x) => a + x.amount, 0);
+  const rooms = get<{ n: number }>('SELECT COUNT(*) n FROM rooms WHERE active = 1')!.n;
+  const month = profitAndLoss(`${d.slice(0, 8)}01`, d);
+  const target = targetsFor(d.slice(0, 7)).revenue;
+  const queries = get<{ n: number }>("SELECT COUNT(*) n FROM audit_queries WHERE status = 'open'")!.n;
+  const day = new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return [
+    `${h.name}, ${day}: earned ${k(r.totalRevenue)} (rooms ${k(sum(['rooms', 'cancellations']))}, bar & food ${k(sum(['drinks', 'confectionery', 'food']))}, other ${k(r.totalRevenue - sum(['rooms', 'cancellations', 'drinks', 'confectionery', 'food']))}).`,
+    `Collected ${k(r.collections.total)}.`,
+    rooms ? `${r.kpis.roomNightsSold} of ${rooms} rooms sold (${Math.round((r.kpis.roomNightsSold / rooms) * 100)}%).` : '',
+    variance ? `Cash drawer ${variance < 0 ? 'short' : 'over'} by ₦${Math.abs(variance).toLocaleString('en-NG')}.` : 'Cash drawer balanced.',
+    `Month so far ${k(month.totalRevenue)}${target ? ` (${Math.round((month.totalRevenue / target) * 100)}% of ${k(target)} target)` : ''}.`,
+    queries ? `${queries} auditor quer${queries > 1 ? 'ies' : 'y'} waiting.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+/** Sends the summary where the owner asked for it. Closing the day never waits on, or fails because of, a message. */
+async function sendSummary(text: string) {
+  const h = getSettings();
+  const sent: string[] = [];
+  if (h.summary_phone && smsEnabled()) await sendSms(intlPhone(h.summary_phone), text).then(() => sent.push('sms'), (e) => console.error('summary sms', e));
+  if (h.summary_email && emailEnabled()) await sendEmail(h.summary_email, `${h.name}: the day in brief`, text).then(() => sent.push('email'), (e) => console.error('summary email', e));
+  return sent;
+}
+
 closeDay.get(
   '/close-day',
   allow('manager', 'accountant', 'auditor'),
@@ -103,7 +137,7 @@ closeDay.get(
 closeDay.post(
   '/close-day',
   manager,
-  h((req, res) => {
+  h(async (req, res) => {
     const user = currentUser(req);
     const b = body(req);
     const d = date(b, 'date');
@@ -133,7 +167,10 @@ closeDay.post(
       audit(user.id, variance === 0 ? 'close_day' : 'close_day_with_variance', 'day', null, { date: d, variance, closed_from: last });
       return { date: d, variance };
     });
-    res.status(201).json(result);
+    const text = ownerSummary(result.date, result.variance);
+    const sent = await sendSummary(text);
+    const phone = getSettings().summary_phone;
+    res.status(201).json({ ...result, summary: { text, sent, whatsapp: phone ? `https://wa.me/${intlPhone(phone)}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}` } });
   }),
 );
 

@@ -6,6 +6,7 @@ import { PAID_SQL, availabilityByType, validateStay } from './reservations.ts';
 import { priceStay, saveNights } from '../pricing.ts';
 import { paystackEnabled } from '../paystack.ts';
 import { getSettings } from '../settings.ts';
+import { autoEmail } from '../messaging.ts';
 import { publicImages } from './website.ts';
 
 /** Unauthenticated endpoints used by the guest website. Read-mostly; the one write is rate limited. */
@@ -51,6 +52,7 @@ publicApi.post(
     const adults = int(b, 'adults', { min: 1, max: 6 });
     const notes = str(b, 'notes', { max: 500, optional: true });
 
+    let newId = 0;
     const result = tx(() => {
       const type = get<{ rate: number; capacity: number; name: string }>('SELECT rate, capacity, name FROM room_types WHERE id = ? AND active = 1', typeId);
       if (!type) throw bad('Please choose a room type');
@@ -71,9 +73,11 @@ publicApi.post(
       );
       saveNights(id, quote.nights);
       audit(null, 'booking_request', 'reservation', id);
+      newId = id;
       const s = getSettings();
       return { code: ref, nights, total: quote.total, room_type: type.name, deposit: paystackEnabled() && s.deposit_percent ? Math.ceil((quote.total * s.deposit_percent) / 100) : 0 };
     });
+    if (email) autoEmail('booking_received', newId, email);
     res.status(201).json(result);
   }),
 );

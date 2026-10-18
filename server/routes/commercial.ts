@@ -4,7 +4,7 @@ import { allow, currentUser, rateLimit } from '../auth.ts';
 import { assertOpen } from '../days.ts';
 import { all, audit, get, run } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, date, h, int, isDate, oneOf, str, today } from '../lib.ts';
-import { deliver, smsEnabled } from '../messaging.ts';
+import { deliver, emailEnabled, smsEnabled } from '../messaging.ts';
 import { initializePayment, paystackEnabled, verifyPayment } from '../paystack.ts';
 import { applyRule, ruleMatches, type RateRule } from '../pricing.ts';
 import { getSettings } from '../settings.ts';
@@ -225,7 +225,7 @@ commercial.get(
   '/messaging/status',
   desk,
   h((_req, res) => {
-    res.json({ sms: smsEnabled(), online_payments: paystackEnabled() });
+    res.json({ sms: smsEnabled(), email: emailEnabled(), online_payments: paystackEnabled() });
   }),
 );
 
@@ -251,7 +251,7 @@ commercial.post(
     rateLimit(`msg:${user.id}`, 60, 60 * 60_000);
     const b = body(req);
     const template = oneOf(b, 'template', MESSAGE_TEMPLATES);
-    const channel = b.channel === 'sms' ? 'sms' : 'whatsapp';
+    const channel = b.channel === 'sms' ? 'sms' : b.channel === 'email' ? 'email' : 'whatsapp';
     const id = Number(req.params.id);
     if (!get('SELECT 1 FROM reservations WHERE id = ?', id)) throw new HttpError(404, 'Reservation not found');
     const out = await deliver(template, id, user.id, channel);

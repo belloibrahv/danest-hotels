@@ -14,6 +14,7 @@ import { assertOpen } from '../days.ts';
 import { priceStay, saveNights, syncTotals, trimNights } from '../pricing.ts';
 import { logRoom } from './housekeeping.ts';
 import { reservationTaxes } from '../tax.ts';
+import { autoEmail } from '../messaging.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, addDays, bad, body, code, date, daysBetween, h, int, isDate, oneOf, str, today } from '../lib.ts';
 
@@ -429,6 +430,7 @@ reservations.post(
       run("UPDATE reservations SET status = 'confirmed', room_id = ? WHERE id = ?", Number.isNaN(roomId) ? null : roomId, id);
       audit(user.id, 'confirm', 'reservation', id);
     });
+    autoEmail('booking_confirmed', id);
     res.json({ ok: true });
   }),
 );

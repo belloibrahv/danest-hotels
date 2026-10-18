@@ -98,6 +98,7 @@ Environment variables:
 | `PAYSTACK_SECRET_KEY` | Turns on online deposits. In Paystack, set the webhook URL to `https://<your-domain>/api/paystack/webhook`. The deposit percentage is set in Settings → Payments & messages |
 | `PUBLIC_URL` | The site's public address, used for Paystack's return link (on Railway, `RAILWAY_PUBLIC_DOMAIN` is used automatically) |
 | `TERMII_API_KEY`, `TERMII_SENDER_ID` | Turns on SMS guest messages. Without them, staff send each message on WhatsApp with one tap |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Turns on email ([resend.com](https://resend.com)): booking emails to guests who give an address, an Email button on each reservation, and the owner's daily summary. `EMAIL_FROM` must be on a domain verified with Resend, e.g. `Danest Hotel <bookings@danesthotels.com>` |
 | `VITE_SHOW_DEMO_LOGINS=1` | At build time, shows one-click demo accounts on the sign-in page |
 
 Schema changes are versioned migrations in `server/db.ts` (`PRAGMA user_version`). They run automatically on start and are safe on existing data.

@@ -90,6 +90,12 @@ function HotelForm() {
             <Field label="Closing note"><Input value={f.invoice_note} onChange={(e) => set('invoice_note', e.target.value)} maxLength={300} /></Field>
           </div>
         </Section>
+        <Section title="Daily summary for the owner" description="When the day is closed, a one-paragraph summary goes here: takings, rooms sold, the cash count, the month against target. By SMS and email when those are connected; otherwise one tap on WhatsApp.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Owner's phone"><Input type="tel" value={f.summary_phone} onChange={(e) => set('summary_phone', e.target.value)} placeholder="080…" /></Field>
+            <Field label="Owner's email"><Input type="email" value={f.summary_email} onChange={(e) => set('summary_email', e.target.value)} placeholder="Optional" /></Field>
+          </div>
+        </Section>
         <Section
           title="Taxes"
           description="Your prices include these taxes: guests pay the price you set, and bills show how much of it is tax. Check the rates with your accountant."

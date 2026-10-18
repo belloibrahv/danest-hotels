@@ -65,8 +65,13 @@ export default function CloseDay() {
   const close = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      await api('/close-day', { body: { date: data.date, counted_cash: Number(counted), notes } });
-      toast.success(`${fmtDateLong(data.date)} is closed`);
+      const r = await api<{ summary: { text: string; sent: string[]; whatsapp: string } }>('/close-day', { body: { date: data.date, counted_cash: Number(counted), notes } });
+      // The owner's summary: sent by SMS or email if set up; otherwise one tap away on WhatsApp.
+      toast.success(`${fmtDateLong(data.date)} is closed`, {
+        description: r.summary.sent.length ? `Summary sent to the owner by ${r.summary.sent.join(' and ')}.` : r.summary.text,
+        duration: 15_000,
+        action: r.summary.sent.length ? undefined : { label: 'Send on WhatsApp', onClick: () => window.open(r.summary.whatsapp, '_blank', 'noopener') },
+      });
       setCounted('');
       setNotes('');
       reload();
