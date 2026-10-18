@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-const DB_PATH = process.env.DANEST_DB ?? resolve(import.meta.dirname, '../data/danest.db');
+export const DB_PATH = process.env.DANEST_DB ?? resolve(import.meta.dirname, '../data/danest.db');
 
 if (DB_PATH !== ':memory:') mkdirSync(dirname(DB_PATH), { recursive: true });
 

@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, naira } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { useApi, useSubmit } from '@/lib/hooks';
 import { shrinkPhoto } from '@/lib/photo';
 import { cn } from '@/lib/utils';
@@ -32,12 +33,14 @@ export default function Settings() {
           <TabsTrigger value="photos">Website photos</TabsTrigger>
           <TabsTrigger value="facilities">Gym, pool & lounge prices</TabsTrigger>
           <TabsTrigger value="payments">Payments & messages</TabsTrigger>
+          <TabsTrigger value="backups">Backups</TabsTrigger>
         </TabsList>
         <TabsContent value="hotel"><HotelForm /></TabsContent>
         <TabsContent value="rooms"><RoomsSettings /></TabsContent>
         <TabsContent value="photos"><WebsitePhotos /></TabsContent>
         <TabsContent value="facilities"><FacilityPrices /></TabsContent>
         <TabsContent value="payments"><Integrations /></TabsContent>
+        <TabsContent value="backups"><Backups /></TabsContent>
       </Tabs>
     </>
   );
@@ -561,5 +564,106 @@ function PhotoPlace({ slot, title, hint, max, wide, photos, onChange }: { slot: 
         </div>
       )}
     </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+interface BackupInfo {
+  backups: { name: string; bytes: number; at: string }[];
+  offsite: { configured: boolean; reason: string | null };
+  last: { at: string; ok: boolean; name: string; offsite: string } | null;
+}
+
+/** Backups happen by themselves every night; this shows that they did, and lets the owner take one or download it. */
+function Backups() {
+  const { user } = useAuth();
+  const { data, reload } = useApi<BackupInfo>('/admin/backups');
+  const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  if (!data) return <LoadingRows />;
+  const now = () => {
+    setBusy(true);
+    api<{ name: string; offsite: string }>('/admin/backups', { body: {} })
+      .then((r) => toast[r.offsite.startsWith('failed') ? 'error' : 'success'](r.offsite === 'sent' ? 'Backed up, and a copy sent off-site' : r.offsite.startsWith('failed') ? 'Saved on the server, but the off-site copy failed' : 'Backed up on the server', { description: r.offsite.startsWith('failed') ? r.offsite : r.name }))
+      .catch((e) => toast.error(e.message))
+      .finally(() => (setBusy(false), reload()));
+  };
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return (
+    <div className="grid items-start gap-6 xl:grid-cols-[1.4fr_1fr]">
+      <Section title="Copies on the server" description="One every night after 3 am, plus any you take. The newest 14 are kept." action={<Button size="sm" onClick={now} disabled={busy}>{busy ? 'Backing up…' : 'Back up now'}</Button>} flush>
+        {data.backups.length === 0 ? (
+          <EmptyState title="No backups yet" className="py-8">The first one is taken tonight, or now with the button above.</EmptyState>
+        ) : (
+          <Table>
+            <TableBody>
+              {data.backups.map((b) => (
+                <TableRow key={b.name}>
+                  <TableCell className="pl-5">
+                    <div className="font-medium">{new Date(b.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{b.name} · {mb(b.bytes)}</div>
+                  </TableCell>
+                  <TableCell className="pr-5 text-right">
+                    {user!.role === 'ceo' && <Button variant="ghost" size="sm" onClick={() => setDownloading(b.name)}>Download</Button>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Section>
+      <div className="space-y-6">
+        <Section title="Off-site copy" description="Only a copy kept somewhere else survives losing the server's disk.">
+          {data.offsite.configured ? (
+            <StatusPill tone="success">Set up — each backup is encrypted and sent off-site</StatusPill>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <StatusPill tone="warning">Not set up</StatusPill>
+              <p className="text-muted-foreground">{data.offsite.reason} Any S3-compatible storage works (Cloudflare R2, Backblaze B2, AWS S3). Whoever runs the server sets it up; see the README.</p>
+            </div>
+          )}
+          {data.last && (
+            <p className={cn('mt-4 text-sm', data.last.ok ? 'text-muted-foreground' : 'text-destructive')}>
+              Last backup {new Date(data.last.at.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })}: off-site {data.last.offsite}.
+            </p>
+          )}
+        </Section>
+      </div>
+      <DownloadBackup name={downloading} onClose={() => setDownloading(null)} />
+    </div>
+  );
+}
+
+function DownloadBackup({ name, onClose }: { name: string | null; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const { busy, error, submit } = useSubmit();
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    submit(async () => {
+      const res = await fetch('/api/admin/backups/download', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-danest-request': '1' }, body: JSON.stringify({ name, password }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Could not download');
+      const url = URL.createObjectURL(await res.blob());
+      Object.assign(document.createElement('a'), { href: url, download: name! }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setPassword('');
+      onClose();
+    });
+  };
+  return (
+    <Dialog open={!!name} onOpenChange={(o) => !o && (setPassword(''), onClose())}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Download the whole database?</DialogTitle></DialogHeader>
+        <form id="dl" className="grid gap-3" onSubmit={onSubmit}>
+          <p className="text-sm text-muted-foreground">It holds every guest, payment and staff record. Keep it somewhere safe. The download is logged.</p>
+          <Field label="Your password"><Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></Field>
+          <ErrorNote error={error} />
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="dl" disabled={busy || !password}>{busy ? 'Preparing…' : 'Download'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

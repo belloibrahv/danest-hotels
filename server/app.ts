@@ -7,6 +7,7 @@ import { stream } from './live.ts';
 import { HttpError } from './lib.ts';
 import { closeDay } from './routes/closeday.ts';
 import { accounts } from './routes/accounts.ts';
+import { backups } from './routes/backups.ts';
 import { catalog } from './routes/catalog.ts';
 import { commercial } from './routes/commercial.ts';
 import { recordSuccess, validSignature } from './paystack.ts';
@@ -107,6 +108,7 @@ export function createApp() {
   api.use(accounts);
   api.use(review);
   api.use(executive);
+  api.use(backups);
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found')));
   app.use('/api', api);
 

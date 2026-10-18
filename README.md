@@ -196,3 +196,19 @@ Room types, rates and the 20-room layout; facility prices; the drinks list; 24-h
 - Channel manager links (Booking.com, Expedia) once the hotel lists there.
 - Supplier accounts and purchase orders; payroll detail; budget versus actual.
 - Multi-property support.
+
+## Backups
+
+Every night after 3 am (Lagos time) the app copies the whole database to a `backups` folder beside it and keeps the newest 14. Owners and managers see them under **Settings → Backups**, can take one at any time, and the owner can download one (password required, logged).
+
+A copy on the same disk does not survive losing the disk. To also send each backup, **encrypted**, to off-site storage, set these on the server (any S3-compatible service: Cloudflare R2, Backblaze B2, AWS S3):
+
+| Variable | Value |
+|---|---|
+| `BACKUP_S3_ENDPOINT` | e.g. `https://<account-id>.r2.cloudflarestorage.com` |
+| `BACKUP_S3_BUCKET` | the bucket name |
+| `BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET` | an access key that can write to that bucket |
+| `BACKUP_S3_REGION` | `auto` for R2 (the default); the bucket's region elsewhere |
+| `BACKUP_PASSPHRASE` | encrypts the off-site copies (falls back to `DANEST_SECRET`). **Store it somewhere other than the server**: it is the only way to read them |
+
+To restore, stop the app, then `node server/restore.ts <file>` (a `.db` from the backups folder) or `BACKUP_PASSPHRASE=… node server/restore.ts <file>.enc` (an off-site copy). It checks the backup's integrity first and keeps the current database beside it.

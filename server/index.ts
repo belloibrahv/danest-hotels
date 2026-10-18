@@ -1,4 +1,5 @@
 import { createApp } from './app.ts';
+import { scheduleBackups } from './backup.ts';
 import { needsSetup, setupCode } from './settings.ts';
 
 // Production starts empty: no demo data, no invented staff. The owner creates their own
@@ -11,6 +12,8 @@ if (needsSetup()) {
       : `No accounts yet. Open /setup and use this one-time setup code: ${setupCode()}`,
   );
 }
+
+scheduleBackups();
 
 const port = Number(process.env.PORT ?? 4000);
 createApp().listen(port, () => {
