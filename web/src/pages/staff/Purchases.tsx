@@ -190,7 +190,7 @@ function LinesEditor({ lines, setLines, products }: { lines: Line[]; setLines: (
               setLine(i, { product_id: x, unit_cost: l.unit_cost || String(p?.avg_cost ?? '') });
             }}
             placeholder="Choose item"
-            options={products.map((p) => ({ value: String(p.id), label: `${p.name} (${p.stock})` }))}
+            options={products.filter((p) => p.track_stock !== 0).map((p) => ({ value: String(p.id), label: `${p.name} (${p.stock})` }))}
           />
           <Input inputMode="numeric" className="tabular-nums" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value.replace(/\D/g, '') })} required />
           <MoneyInput value={l.unit_cost} onChange={(x) => setLine(i, { unit_cost: x })} required />
@@ -222,7 +222,7 @@ function NewPurchase({ open, onClose, onSaved }: { open: boolean; onClose: () =>
   const { busy, error, submit } = useSubmit();
   const total = sum(lines);
   const known = suppliers.data?.find((s) => s.name.toLowerCase() === supplier.trim().toLowerCase());
-  const low = (products.data ?? []).filter((p) => p.stock <= p.reorder_level && (!known || p.supplier_id === known.id));
+  const low = (products.data ?? []).filter((p) => p.track_stock !== 0 && p.stock <= p.reorder_level && (!known || p.supplier_id === known.id));
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();

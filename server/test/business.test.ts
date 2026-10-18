@@ -400,3 +400,44 @@ describe('taxes are inside the prices, and bills show them', () => {
     ok(await call('/settings', { cookie: manager, method: 'PUT', body: { ...s, taxes: [] } }));
   });
 });
+
+describe('the kitchen and services', () => {
+  let dish = 0;
+  test('a dish is made to order: no stock to run out, food cost counted', async () => {
+    const r = await call('/products', { cookie: manager, body: { name: 'Ofada rice & ayamase', category: 'food', unit: 'plate', price: 6000, reorder_level: 0, food_cost: 2600 } });
+    ok(r, 201);
+    dish = r.json.id;
+    const p = get<{ track_stock: number; avg_cost: number; stock: number }>('SELECT track_stock, avg_cost, stock FROM products WHERE id = ?', dish)!;
+    assert.deepEqual({ ...p }, { track_stock: 0, avg_cost: 2600, stock: 0 });
+    assert.equal((await call(`/products/${dish}/adjust`, { cookie: manager, body: { change: -1, reason: 'test' } })).status, 400, 'nothing to count');
+    assert.equal((await call('/purchases', { cookie: manager, body: { supplier: 'Market', items: [{ product_id: dish, qty: 5, unit_cost: 100 }] } })).status, 400, 'not bought as stock');
+  });
+
+  test('food from the till goes to the kitchen and moves along; drinks alone do not', async () => {
+    const drink = get<{ id: number }>("SELECT id FROM products WHERE category = 'drinks' AND stock > 5 LIMIT 1")!.id;
+    const order = await call('/sales', { cookie: bar, body: { method: 'cash', kitchen_note: 'Table 3', items: [{ product_id: dish, qty: 3 }, { product_id: drink, qty: 1 }] } });
+    ok(order, 201);
+    const sale = get<{ kitchen_status: string; cost_total: number; total: number }>('SELECT kitchen_status, cost_total, total FROM sales WHERE id = ?', order.json.id)!;
+    assert.equal(sale.kitchen_status, 'new');
+    const k = (await call('/kitchen', { cookie: await login('frontdesk') })).status;
+    assert.equal(k, 403, 'the front desk does not run the kitchen');
+    const kitchenView = (await call('/kitchen', { cookie: bar })).json.find((o: any) => o.id === order.json.id);
+    assert.deepEqual(kitchenView.items, [{ sale_id: order.json.id, qty: 3, name: 'Ofada rice & ayamase' }], 'the kitchen sees only its own items');
+    assert.equal(kitchenView.note, 'Table 3');
+    for (const next of ['preparing', 'ready', 'served']) assert.equal((await call(`/kitchen/${order.json.id}/advance`, { cookie: bar, body: {} })).json.status, next);
+    assert.equal((await call(`/kitchen/${order.json.id}/advance`, { cookie: bar, body: {} })).status, 409);
+    const drinksOnly = await call('/sales', { cookie: bar, body: { method: 'cash', items: [{ product_id: drink, qty: 1 }] } });
+    assert.equal(get<{ k: string | null }>('SELECT kitchen_status k FROM sales WHERE id = ?', drinksOnly.json.id)!.k, null);
+    const pnl = (await call('/reports/pnl', { cookie: accountant })).json;
+    assert.ok(pnl.revenue.find((r: any) => r.key === 'food').amount >= 18_000);
+    assert.ok(pnl.costOfSales.find((c: any) => c.key === 'cogs_food').amount >= 7800);
+  });
+
+  test('laundry goes on the room bill and into its own line of profit', async () => {
+    const stay = get<{ id: number }>("SELECT id FROM reservations WHERE status = 'checked_in' LIMIT 1")!.id;
+    ok(await call('/facility-income', { cookie: desk, body: { facility: 'laundry', item: 'Laundry — 5 pieces', amount: 2500, method: 'room', reservation_id: stay } }), 201);
+    const bill = (await call(`/reservations/${stay}`, { cookie: desk })).json;
+    assert.ok(bill.folio.some((l: any) => l.kind === 'laundry' && l.amount === 2500));
+    assert.equal((await call('/facility-income', { cookie: desk, body: { facility: 'spa', item: 'x', amount: 1, method: 'cash' } })).status, 400);
+  });
+});

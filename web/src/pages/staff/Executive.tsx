@@ -65,6 +65,10 @@ interface Exec {
   };
 }
 
+const sum = (b: Brief, keys: string[]) => keys.reduce((a, k) => a + (b.streams[k] ?? 0), 0);
+const barOf = (b: Brief) => sum(b, ['drinks', 'confectionery', 'food']);
+const otherOf = (b: Brief) => sum(b, ['gym', 'pool', 'lounge', 'laundry', 'room_service', 'transport', 'extras']);
+
 const change = (a: number, b: number) => (b ? (a - b) / Math.abs(b) : null);
 
 function Delta({ now, before, invert, points }: { now: number; before: number; invert?: boolean; points?: boolean }) {
@@ -81,8 +85,8 @@ function Delta({ now, before, invert, points }: { now: number; before: number; i
 
 const trendChart = {
   rooms: { label: 'Rooms', color: 'var(--chart-1)' },
-  bar: { label: 'Bar & shop', color: 'var(--chart-2)' },
-  other: { label: 'Gym, pool & lounge', color: 'var(--chart-3)' },
+  bar: { label: 'Bar, food & shop', color: 'var(--chart-2)' },
+  other: { label: 'Facilities & services', color: 'var(--chart-3)' },
 } satisfies ChartConfig;
 const profitChart = { net_profit: { label: 'Net profit', color: 'var(--chart-1)' } } satisfies ChartConfig;
 
@@ -192,8 +196,8 @@ export default function Executive() {
             <TableBody>
               {[
                 { label: 'Rooms', a: now.streams.rooms + now.streams.cancellations, b: prev.streams.rooms + prev.streams.cancellations, c: ly.streams.rooms + ly.streams.cancellations },
-                { label: 'Bar & shop', a: now.streams.drinks + now.streams.confectionery, b: prev.streams.drinks + prev.streams.confectionery, c: ly.streams.drinks + ly.streams.confectionery },
-                { label: 'Gym, pool & lounge', a: now.streams.gym + now.streams.pool + now.streams.lounge, b: prev.streams.gym + prev.streams.pool + prev.streams.lounge, c: ly.streams.gym + ly.streams.pool + ly.streams.lounge },
+                { label: 'Bar, food & shop', a: barOf(now), b: barOf(prev), c: barOf(ly) },
+                { label: 'Facilities & services', a: otherOf(now), b: otherOf(prev), c: otherOf(ly) },
                 { label: 'Total revenue', a: now.revenue, b: prev.revenue, c: ly.revenue, strong: true },
                 { label: 'Costs', a: now.costs, b: prev.costs, c: ly.costs, invert: true },
                 { label: 'Net profit', a: now.net_profit, b: prev.net_profit, c: ly.net_profit, strong: true },

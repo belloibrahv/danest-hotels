@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { BOOKS, CHARGE_METHODS, isManager, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITIES, PAYMENT_METHODS, STREAMS, type StreamKey } from '../../shared/constants.ts';
+import { BOOKS, CHARGE_METHODS, isManager, EXPENSE_CATEGORIES, EXPENSE_KEYS, OUTLETS, PAYMENT_METHODS, STREAMS, type Outlet, type ProductCategory, type StreamKey } from '../../shared/constants.ts';
 import { inHouse } from './inventory.ts';
 import { assertOpen, lastClosedDate } from '../days.ts';
 import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
@@ -37,7 +37,7 @@ finance.post(
   h((req, res) => {
     const user = currentUser(req);
     const b = body(req);
-    const facility = oneOf(b, 'facility', FACILITIES);
+    const facility = oneOf(b, 'facility', OUTLETS);
     const item = str(b, 'item', { max: 120 });
     const customer = str(b, 'customer', { max: 120, optional: true });
     const amount = int(b, 'amount', { min: 1, max: 50_000_000 });
@@ -199,12 +199,12 @@ export function collections(from: string, to: string) {
 }
 
 export function profitAndLoss(from: string, to: string) {
-  const revenue: Record<StreamKey, number> = { rooms: 0, drinks: 0, confectionery: 0, cancellations: 0, gym: 0, pool: 0, lounge: 0 };
+  const revenue = Object.fromEntries(STREAMS.map((s) => [s.key, 0])) as Record<StreamKey, number>;
   revenue.rooms = roomNightsByDay(from, to).reduce((a, d) => a + d.revenue, 0);
   revenue.cancellations = retainedBetween(from, to);
 
-  const cogs: Money = { drinks: 0, confectionery: 0 };
-  for (const r of all<{ category: 'drinks' | 'confectionery'; sales: number; cost: number }>(
+  const cogs: Money = { drinks: 0, confectionery: 0, food: 0 };
+  for (const r of all<{ category: ProductCategory; sales: number; cost: number }>(
     `SELECT p.category, SUM(si.qty * si.unit_price) sales, SUM(si.qty * si.unit_cost) cost
        FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
       WHERE s.date BETWEEN ? AND ? GROUP BY p.category`,
@@ -214,7 +214,7 @@ export function profitAndLoss(from: string, to: string) {
     revenue[r.category] = r.sales;
     cogs[r.category] = r.cost;
   }
-  for (const r of all<{ facility: 'gym' | 'pool' | 'lounge'; v: number }>('SELECT facility, SUM(amount) v FROM facility_income WHERE date BETWEEN ? AND ? GROUP BY facility', from, to)) {
+  for (const r of all<{ facility: Outlet; v: number }>('SELECT facility, SUM(amount) v FROM facility_income WHERE date BETWEEN ? AND ? GROUP BY facility', from, to)) {
     revenue[r.facility] = r.v;
   }
 
@@ -223,7 +223,7 @@ export function profitAndLoss(from: string, to: string) {
   const operating = EXPENSE_CATEGORIES.filter((c) => c.kind === 'operating').map((c) => ({ key: c.key, label: c.label, amount: byCategory.get(c.key) ?? 0 }));
 
   const totalRevenue = Object.values(revenue).reduce((a, b) => a + b, 0);
-  const costOfSales = cogs.drinks + cogs.confectionery + direct.reduce((a, c) => a + c.amount, 0);
+  const costOfSales = cogs.drinks + cogs.confectionery + cogs.food + direct.reduce((a, c) => a + c.amount, 0);
   const grossProfit = totalRevenue - costOfSales;
   const totalOperating = operating.reduce((a, c) => a + c.amount, 0);
 
@@ -235,6 +235,7 @@ export function profitAndLoss(from: string, to: string) {
     costOfSales: [
       { key: 'cogs_drinks', label: 'Drinks sold (at cost)', amount: cogs.drinks },
       { key: 'cogs_confectionery', label: 'Confectionery sold (at cost)', amount: cogs.confectionery },
+      { key: 'cogs_food', label: 'Food sold (at food cost)', amount: cogs.food },
       ...direct,
     ],
     totalCostOfSales: costOfSales,
@@ -358,7 +359,7 @@ finance.get(
       month: profitAndLoss(monthStart, t),
       collectedToday: collections(t, t),
       last30: dailySeries(from30, t),
-      lowStock: all('SELECT id, name, stock, reorder_level, unit FROM products WHERE active = 1 AND stock <= reorder_level ORDER BY stock * 1.0 / MAX(reorder_level,1) LIMIT 8'),
+      lowStock: all('SELECT id, name, stock, reorder_level, unit FROM products WHERE active = 1 AND track_stock = 1 AND stock <= reorder_level ORDER BY stock * 1.0 / MAX(reorder_level,1) LIMIT 8'),
     });
   }),
 );

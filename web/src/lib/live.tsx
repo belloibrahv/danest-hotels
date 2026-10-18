@@ -6,7 +6,7 @@ import { cn } from './utils';
  * each screen refetches through its own API, so it never sees data its role can't. Put
  * `useLive('sales', 'stock')` in a fetch key and the screen keeps itself current.
  */
-export type Topic = 'reservations' | 'rooms' | 'sales' | 'stock' | 'money' | 'activity' | 'queries';
+export type Topic = 'reservations' | 'rooms' | 'sales' | 'stock' | 'money' | 'activity' | 'queries' | 'kitchen';
 type Status = 'connecting' | 'live' | 'offline';
 
 const Ctx = createContext<{ status: Status; versions: Partial<Record<Topic, number>> }>({ status: 'offline', versions: {} });

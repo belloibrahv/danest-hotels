@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { BOOKS, EXPENSE_CATEGORIES, EXPENSE_KEYS, FACILITY_LABELS, TARGET_KEYS, isManager, type Facility } from '../../shared/constants.ts';
+import { BOOKS, EXPENSE_CATEGORIES, EXPENSE_KEYS, OUTLET_LABELS, TARGET_KEYS, isManager, type Outlet } from '../../shared/constants.ts';
 import { allow, currentUser } from '../auth.ts';
 import { lastClosedDate } from '../days.ts';
 import { all, audit, get, run } from '../db.ts';
@@ -61,7 +61,7 @@ export function cashbook(from: string, to: string): CashRow[] {
     source:
       r.source === 'room' ? 'Room bill'
       : r.source === 'bar' ? 'Bar & shop'
-      : r.source === 'facility' ? FACILITY_LABELS[detail as Facility] ?? 'Facilities'
+      : r.source === 'facility' ? OUTLET_LABELS[detail as Outlet] ?? 'Facilities'
       : r.source === 'company' ? 'Company account'
       : r.source === 'refund' ? `Refund${detail ? ` — ${detail}` : ''}`
       : r.source === 'expense' ? EXPENSE_LABEL[detail ?? ''] ?? 'Expense'

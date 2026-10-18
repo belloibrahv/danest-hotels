@@ -27,6 +27,7 @@ export const DEMO_USERS = [
   { name: 'Chief Adebayo Danesi', username: 'owner', role: 'ceo' },
   { name: 'Mrs. Ronke Alabi', username: 'accountant', role: 'accountant' },
   { name: 'Mr. Chinedu Okeke', username: 'auditor', role: 'auditor' },
+  { name: 'Kemi Adeyinka', username: 'kitchen', role: 'kitchen' },
 ] as const;
 
 const ROOM_TYPES = [
@@ -82,6 +83,17 @@ const PRODUCTS: [string, 'drinks' | 'confectionery', string, number, number, num
   ['Digestive Biscuits', 'confectionery', 'pack', 1500, 1000, 8, 1.5],
   ['Kit Kat', 'confectionery', 'bar', 1500, 1000, 12, 2],
   ['Popcorn', 'confectionery', 'pack', 1000, 500, 12, 3],
+];
+
+// The kitchen's menu: made to order, so no stock count; [name, price, food cost per plate]
+const MENU: [string, number, number][] = [
+  ['Jollof rice & chicken', 4500, 2200],
+  ['Fried rice & turkey', 5500, 2800],
+  ['Pounded yam & egusi', 5000, 2300],
+  ['Amala & ewedu with beef', 4000, 1800],
+  ['Peppered goat meat', 3500, 1700],
+  ['Chicken suya platter', 6000, 3000],
+  ['Full English breakfast', 4500, 2000],
 ];
 
 const FIRST = ['Adewale', 'Chioma', 'Emeka', 'Funmilayo', 'Ibrahim', 'Kemi', 'Oluwaseun', 'Ngozi', 'Yusuf', 'Bisi', 'Segun', 'Amaka', 'Tolu', 'Hauwa', 'Femi', 'Zainab', 'Kunle', 'Ifeoma', 'Bayo', 'Aisha', 'Dayo', 'Nneka', 'Gbenga', 'Halima', 'Jide', 'Uche', 'Remi', 'Sade', 'Tobi', 'Efe'];
@@ -140,6 +152,8 @@ export function seed(opts: { live?: boolean } = {}) {
       ['gym', 'Gym day pass', 3000], ['gym', 'Gym monthly membership', 25000], ['gym', 'Personal training (4 sessions)', 40000],
       ['pool', 'Pool day pass — child', 3000], ['pool', 'Pool day pass — adult', 5000], ['pool', 'Pool party booking', 120000],
       ['lounge', 'Friday karaoke night — cover', 2000], ['lounge', 'VIP table reservation', 20000], ['lounge', 'Lounge hire — private event', 200000],
+      ['laundry', 'Laundry — 5 pieces', 2500], ['laundry', 'Laundry — suit, dry clean', 4000], ['room_service', 'Room service delivery', 1000],
+      ['transport', 'Airport pickup (Ibadan)', 15000], ['extras', 'Extra bed per night', 7500],
     ] as const) run('INSERT INTO facility_items (facility, name, price) VALUES (?,?,?)', f, n, p);
 
     // ----- rooms -----
@@ -297,6 +311,10 @@ export function seed(opts: { live?: boolean } = {}) {
       price, baseCost: cost, reorder, weight, stock: 0, avg: cost,
     }));
     const totalWeight = products.reduce((a, p) => a + p.weight, 0);
+    const menu = MENU.map(([name, price, cost], i) => ({
+      id: run("INSERT INTO products (name, category, unit, price, avg_cost, stock, reorder_level, track_stock, sku) VALUES (?, 'food', 'plate', ?, ?, 0, 0, 0, ?)", name, price, cost, `FD-${String(i + 1).padStart(3, '0')}`).id,
+      price, cost,
+    }));
     const credit: { id: number; total: number; date: string }[] = [];
 
     const restock = (date: string, full: boolean) => {
@@ -367,6 +385,22 @@ export function seed(opts: { live?: boolean } = {}) {
         }
       }
 
+      // ----- kitchen: lunch and dinner orders, some to rooms -----
+      for (let i = between(isWeekend(d) ? 8 : 4, isWeekend(d) ? 16 : 9) * (d === T ? 0.4 : 1); i > 0; i--) {
+        const dish = pick(menu);
+        const qty = between(1, 2);
+        const guest = chance(0.3) ? inHouseOn(d) : null;
+        const hour = d === T ? between(8, 12) : pick([8, 13, 13, 14, 19, 19, 20, 21]);
+        // Today's orders are still moving through the kitchen; past ones were served.
+        const status = d === T ? pick(['new', 'preparing', 'ready', 'served', 'served']) : 'served';
+        const saleId = run(
+          'INSERT INTO sales (receipt_no, date, method, reservation_id, total, cost_total, staff_id, created_at, kitchen_status, kitchen_note, ready_at, served_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          ref('RC'), d, guest ? 'room' : method(), guest, dish.price * qty, dish.cost * qty, barId, stamp(d, hour, between(0, 59)), status,
+          guest ? null : pick(['Table 2', 'Table 5', 'Poolside', 'Takeaway', 'Lounge']), status === 'ready' || status === 'served' ? stamp(d, hour, 59) : null, status === 'served' ? stamp(d, hour, 59) : null,
+        ).id;
+        run('INSERT INTO sale_items (sale_id, product_id, qty, unit_price, unit_cost) VALUES (?,?,?,?,?)', saleId, dish.id, qty, dish.price, dish.cost);
+      }
+
       // ----- gym, pool, lounge -----
       const fac = (facility: string, item: string, amount: number, customer: string | null = null) => {
         // Hotel guests often put the pool or gym on their room bill.
@@ -385,6 +419,13 @@ export function seed(opts: { live?: boolean } = {}) {
       if (isWeekend(d)) for (let i = between(1, 4) * scale; i > 0; i--) fac('lounge', 'VIP table reservation', pick([15000, 20000, 30000]));
       if (weekday(d) === 6 && chance(0.3)) fac('lounge', 'Lounge hire — private event', pick([150000, 200000, 250000]), guestName());
       if (weekday(d) === 5 && d !== T) fac('lounge', 'Friday karaoke night — cover', between(8, 20) * 2000);
+      // Services go on the guest's bill.
+      for (let i = between(0, 3) * scale; i > 0; i--) {
+        const guest = inHouseOn(d);
+        if (!guest) break;
+        const [service, item, amount] = pick([['laundry', 'Laundry — 5 pieces', 2500], ['laundry', 'Laundry — suit, dry clean', 4000], ['room_service', 'Room service delivery', 1000], ['transport', 'Airport pickup (Ibadan)', 15000]] as const);
+        run('INSERT INTO facility_income (facility, item, amount, method, reservation_id, date, recorded_by, created_at) VALUES (?,?,?,?,?,?,?,?)', service, item, amount, 'room', guest, d, deskId, stamp(d, between(8, 20), between(0, 59)));
+      }
 
       // ----- expenses -----
       const exp = (category: string, description: string, amount: number, paidTo: string | null = null) =>

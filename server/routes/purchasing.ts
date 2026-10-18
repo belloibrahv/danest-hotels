@@ -137,6 +137,7 @@ function receiveLines(purchaseId: number, items: Line[]) {
   for (const l of items) {
     const p = get<Product>('SELECT * FROM products WHERE id = ?', l.product_id);
     if (!p) throw bad('Unknown product in purchase');
+    if (!p.track_stock) throw bad(`${p.name} is made to order, so it isn't bought as stock`);
     const avg = Math.round((p.stock * p.avg_cost + l.qty * l.unit_cost) / (p.stock + l.qty));
     run('UPDATE products SET stock = stock + ?, avg_cost = ? WHERE id = ?', l.qty, avg, l.product_id);
     run('INSERT INTO purchase_items (purchase_id, product_id, qty, unit_cost) VALUES (?,?,?,?)', purchaseId, l.product_id, l.qty, l.unit_cost);
@@ -216,7 +217,11 @@ purchasing.post(
       if (status === 'received') assertOpen(when);
       const supplier = resolveSupplier(b, user.id);
       const { terms, due } = status === 'received' ? paymentTerms(b, when, supplier.terms_days) : { terms: null, due: null };
-      for (const l of items) if (!get('SELECT 1 FROM products WHERE id = ?', l.product_id)) throw bad('Unknown product in purchase');
+      for (const l of items) {
+        const p = get<Product>('SELECT * FROM products WHERE id = ?', l.product_id);
+        if (!p) throw bad('Unknown product in purchase');
+        if (!p.track_stock) throw bad(`${p.name} is made to order, so it isn't bought as stock`);
+      }
       const total = items.reduce((s, l) => s + l.qty * l.unit_cost, 0);
       const ref = code('PO');
       const { id } = run(

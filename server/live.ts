@@ -7,7 +7,7 @@ import { currentSessionId } from './auth.ts';
  * never the data itself: each open screen refetches through its own role-checked API, so a
  * bar till can hear that money moved without ever being told how much.
  */
-export const TOPICS = ['reservations', 'rooms', 'sales', 'stock', 'money', 'activity', 'queries'] as const;
+export const TOPICS = ['reservations', 'rooms', 'sales', 'stock', 'money', 'activity', 'queries', 'kitchen'] as const;
 export type Topic = (typeof TOPICS)[number];
 
 /** What each audited entity touches. Everything audited is also new activity. */
@@ -16,7 +16,7 @@ const ENTITY_TOPICS: Record<string, Topic[]> = {
   room: ['rooms'],
   room_type: ['rooms'],
   maintenance: ['rooms'],
-  sale: ['sales', 'stock', 'money'],
+  sale: ['sales', 'stock', 'money', 'kitchen'],
   product: ['stock'],
   purchase: ['stock', 'money'],
   supplier: ['stock'],

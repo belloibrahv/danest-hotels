@@ -1,6 +1,6 @@
 // Single source of truth for the business model, shared by the API and the UI.
 
-export const ROLES = ['ceo', 'manager', 'accountant', 'auditor', 'frontdesk', 'bar', 'housekeeping'] as const;
+export const ROLES = ['ceo', 'manager', 'accountant', 'auditor', 'frontdesk', 'bar', 'kitchen', 'housekeeping'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -10,6 +10,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   auditor: 'Auditor',
   frontdesk: 'Front desk',
   bar: 'Bar & shop',
+  kitchen: 'Kitchen',
   housekeeping: 'Housekeeping',
 };
 
@@ -20,6 +21,7 @@ export const ROLE_HELP: Record<Role, string> = {
   auditor: 'Reads every naira and every action, raises queries; cannot change anything',
   frontdesk: 'Reservations, guests, room bills, gym/pool/lounge takings, housekeeping',
   bar: 'Till, room charges and stock levels — never cost prices',
+  kitchen: 'Food orders from the till, on a screen in the kitchen',
   housekeeping: 'Rooms to clean and maintenance reports, on a phone',
 };
 
@@ -70,7 +72,7 @@ export const ID_LABELS: Record<IdType, string> = {
   other: 'Other ID',
 };
 
-export const PRODUCT_CATEGORIES = ['drinks', 'confectionery'] as const;
+export const PRODUCT_CATEGORIES = ['drinks', 'confectionery', 'food'] as const;
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
 export const FACILITIES = ['gym', 'pool', 'lounge'] as const;
@@ -81,15 +83,37 @@ export const FACILITY_LABELS: Record<Facility, string> = {
   lounge: 'Lounge & bar',
 };
 
+/** Services billed like the facilities: paid now or added to the guest's room bill. */
+export const SERVICES = ['laundry', 'room_service', 'transport', 'extras'] as const;
+export type Service = (typeof SERVICES)[number];
+/** Everything the front desk sells by the item, outside rooms and the till. */
+export const OUTLETS = [...FACILITIES, ...SERVICES] as const;
+export type Outlet = (typeof OUTLETS)[number];
+export const OUTLET_LABELS: Record<Outlet, string> = {
+  ...FACILITY_LABELS,
+  laundry: 'Laundry',
+  room_service: 'Room service',
+  transport: 'Airport & transport',
+  extras: 'Other extras',
+};
+
+export const KITCHEN_STATUSES = ['new', 'preparing', 'ready', 'served'] as const;
+export type KitchenStatus = (typeof KITCHEN_STATUSES)[number];
+
 /** Revenue streams, in the order the owner thinks about them: core first, then "other". */
 export const STREAMS = [
   { key: 'rooms', label: 'Room reservations', group: 'core' },
   { key: 'drinks', label: 'Drinks', group: 'core' },
   { key: 'confectionery', label: 'Confectionery', group: 'core' },
+  { key: 'food', label: 'Food', group: 'core' },
   { key: 'cancellations', label: 'Cancellation & no-show fees', group: 'core' },
   { key: 'gym', label: 'Gym', group: 'other' },
   { key: 'pool', label: 'Swimming pool', group: 'other' },
   { key: 'lounge', label: 'Lounge & bar', group: 'other' },
+  { key: 'laundry', label: 'Laundry', group: 'other' },
+  { key: 'room_service', label: 'Room service', group: 'other' },
+  { key: 'transport', label: 'Airport & transport', group: 'other' },
+  { key: 'extras', label: 'Other extras', group: 'other' },
 ] as const;
 export type StreamKey = (typeof STREAMS)[number]['key'];
 

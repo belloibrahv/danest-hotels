@@ -20,6 +20,7 @@ const DEMO_USERS = [
   ['auditor', 'Auditor'],
   ['frontdesk', 'Front desk'],
   ['bar', 'Bar & shop'],
+  ['kitchen', 'Kitchen'],
   ['housekeeping', 'Housekeeping'],
 ];
 

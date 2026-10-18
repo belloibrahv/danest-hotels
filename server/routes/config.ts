@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { DEFAULT_SETTINGS, FACILITIES, ROLES, TAX_GROUPS, type HotelSettings, type Tax } from '../../shared/constants.ts';
+import { DEFAULT_SETTINGS, OUTLETS, ROLES, TAX_GROUPS, type HotelSettings, type Tax } from '../../shared/constants.ts';
 import { allow, createSession, currentUser, hashPassword, passwordProblem, rateLimit } from '../auth.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { EMAIL_RE, HttpError, PHONE_RE, bad, body, h, int, oneOf, str } from '../lib.ts';
@@ -295,7 +295,7 @@ config.post(
     const b = body(req);
     const { id } = run(
       'INSERT INTO facility_items (facility, name, price) VALUES (?,?,?)',
-      oneOf(b, 'facility', FACILITIES), str(b, 'name', { max: 80 }), int(b, 'price', { min: 0, max: 50_000_000 }),
+      oneOf(b, 'facility', OUTLETS), str(b, 'name', { max: 80 }), int(b, 'price', { min: 0, max: 50_000_000 }),
     );
     audit(currentUser(req).id, 'create', 'facility_item', id);
     res.status(201).json({ id });
@@ -310,7 +310,7 @@ config.put(
     const id = Number(req.params.id);
     const n = run(
       'UPDATE facility_items SET facility = ?, name = ?, price = ?, active = ? WHERE id = ?',
-      oneOf(b, 'facility', FACILITIES), str(b, 'name', { max: 80 }), int(b, 'price', { min: 0, max: 50_000_000 }), b.active === false ? 0 : 1, id,
+      oneOf(b, 'facility', OUTLETS), str(b, 'name', { max: 80 }), int(b, 'price', { min: 0, max: 50_000_000 }), b.active === false ? 0 : 1, id,
     ).changes;
     if (!n) throw new HttpError(404, 'Item not found');
     audit(currentUser(req).id, 'update', 'facility_item', id);

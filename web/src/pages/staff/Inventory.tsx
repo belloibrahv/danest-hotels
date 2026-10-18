@@ -101,7 +101,7 @@ function Items({ editing, setEditing }: { editing: Product | 'new' | null; setEd
     const needle = q.trim().toLowerCase();
     return (data ?? []).filter(
       (p) =>
-        (cat === 'all' ? true : cat === 'low' ? p.active && p.stock <= p.reorder_level : cat === 'off' ? !p.active : p.category === cat && p.active) &&
+        (cat === 'all' ? true : cat === 'low' ? p.active && p.track_stock !== 0 && p.stock <= p.reorder_level : cat === 'off' ? !p.active : p.category === cat && p.active) &&
         (!needle || p.name.toLowerCase().includes(needle) || p.sku?.toLowerCase().includes(needle) || p.barcode?.includes(needle) || p.supplier?.toLowerCase().includes(needle)),
     );
   }, [data, cat, q]);
@@ -109,8 +109,9 @@ function Items({ editing, setEditing }: { editing: Product | 'new' | null; setEd
   if (error) return <ErrorNote error={error} />;
   if (!data) return <LoadingRows rows={8} />;
   const active = data.filter((p) => p.active);
-  const low = active.filter((p) => p.stock <= p.reorder_level);
-  const out = active.filter((p) => p.stock === 0);
+  const counted = active.filter((p) => p.track_stock !== 0);
+  const low = counted.filter((p) => p.stock <= p.reorder_level);
+  const out = counted.filter((p) => p.stock === 0);
   const value = active.reduce((a, p) => a + p.stock * (p.avg_cost ?? 0), 0);
   const retail = active.reduce((a, p) => a + p.stock * p.price, 0);
 
@@ -130,6 +131,7 @@ function Items({ editing, setEditing }: { editing: Product | 'new' | null; setEd
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="drinks">Drinks</TabsTrigger>
             <TabsTrigger value="confectionery">Confectionery</TabsTrigger>
+            {data.some((p) => p.category === 'food') && <TabsTrigger value="food">Food</TabsTrigger>}
             <TabsTrigger value="low">Low ({low.length})</TabsTrigger>
             {showCost && data.some((p) => !p.active) && <TabsTrigger value="off">Not on sale</TabsTrigger>}
           </TabsList>
@@ -179,11 +181,11 @@ function Items({ editing, setEditing }: { editing: Product | 'new' | null; setEd
                   <TableCell className="text-right"><Money value={p.price} /></TableCell>
                   {showCost && <TableCell className="hidden text-right text-muted-foreground sm:table-cell"><Money value={p.avg_cost ?? 0} /></TableCell>}
                   {showCost && <TableCell className="hidden text-right tabular-nums md:table-cell">{p.price ? pct((p.price - (p.avg_cost ?? 0)) / p.price) : '—'}</TableCell>}
-                  <TableCell className="text-right font-semibold tabular-nums">{p.stock}</TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">{p.track_stock === 0 ? <span className="text-xs font-normal text-muted-foreground">Made to order</span> : p.stock}</TableCell>
                   <TableCell className="hidden sm:table-cell"><StockPill p={p} /></TableCell>
                   {manager && (
                     <TableCell className="pr-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="sm" onClick={() => setCounting(p)}>Count</Button>
+                      {p.track_stock !== 0 && <Button variant="ghost" size="sm" onClick={() => setCounting(p)}>Count</Button>}
                       <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>Edit</Button>
                     </TableCell>
                   )}
@@ -201,7 +203,7 @@ function Items({ editing, setEditing }: { editing: Product | 'new' | null; setEd
 }
 
 function StockPill({ p }: { p: Product }) {
-  return !p.active ? <StatusPill>Not on sale</StatusPill> : p.stock === 0 ? <StatusPill tone="danger">Out</StatusPill> : p.stock <= p.reorder_level ? <StatusPill tone="warning">Reorder</StatusPill> : <StatusPill tone="success">OK</StatusPill>;
+  return !p.active ? <StatusPill>Not on sale</StatusPill> : p.track_stock === 0 ? <StatusPill tone="info">On the menu</StatusPill> : p.stock === 0 ? <StatusPill tone="danger">Out</StatusPill> : p.stock <= p.reorder_level ? <StatusPill tone="warning">Reorder</StatusPill> : <StatusPill tone="success">OK</StatusPill>;
 }
 
 // ---------- one item: photo, details and its stock card ----------
@@ -327,6 +329,7 @@ function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new'
   const init = () => ({
     name: p?.name ?? '', category: p?.category ?? 'drinks', unit: p?.unit ?? 'bottle', price: String(p?.price ?? ''), reorder_level: String(p?.reorder_level ?? 12), active: p ? !!p.active : true,
     sku: p?.sku ?? '', barcode: p?.barcode ?? '', description: p?.description ?? '', supplier_id: p?.supplier_id ? String(p.supplier_id) : '',
+    track_stock: p ? p.track_stock !== 0 : true, food_cost: p && p.track_stock === 0 ? String(p.avg_cost ?? '') : '',
   });
   const [f, setF] = useState(init);
   const [key, setKey] = useState<typeof product>(null);
@@ -335,7 +338,7 @@ function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new'
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit(async () => {
-      await api(p ? `/products/${p.id}` : '/products', { method: p ? 'PATCH' : 'POST', body: { ...f, price: Number(f.price), reorder_level: Number(f.reorder_level), supplier_id: f.supplier_id ? Number(f.supplier_id) : null } });
+      await api(p ? `/products/${p.id}` : '/products', { method: p ? 'PATCH' : 'POST', body: { ...f, price: Number(f.price), reorder_level: Number(f.reorder_level || 0), supplier_id: f.supplier_id ? Number(f.supplier_id) : null, food_cost: f.track_stock ? undefined : Number(f.food_cost || 0) } });
       toast.success(p ? 'Item updated' : 'Item added', { description: p ? undefined : 'Record a purchase to put it in stock.' });
       onSaved();
     });
@@ -349,11 +352,26 @@ function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new'
         <form id="product" className="grid gap-4 sm:grid-cols-2" onSubmit={onSubmit}>
           <Field label="Name" className="sm:col-span-2"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} /></Field>
           <Field label="Category">
-            <SelectField value={f.category} onChange={(x) => setF({ ...f, category: x as Product['category'] })} options={[{ value: 'drinks', label: 'Drinks' }, { value: 'confectionery', label: 'Confectionery' }]} />
+            <SelectField
+              value={f.category}
+              onChange={(x) => setF({ ...f, category: x as Product['category'], ...(p ? {} : { track_stock: x !== 'food', unit: x === 'food' ? 'plate' : f.unit }) })}
+              options={[{ value: 'drinks', label: 'Drinks' }, { value: 'confectionery', label: 'Confectionery' }, { value: 'food', label: 'Food (kitchen)' }]}
+            />
           </Field>
           <Field label="Sold per"><Input value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} required maxLength={20} placeholder="bottle, can, pack" /></Field>
           <Field label="Selling price"><MoneyInput value={f.price} onChange={(x) => setF({ ...f, price: x })} required /></Field>
-          <Field label="Reorder at"><Input inputMode="numeric" className="tabular-nums" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value.replace(/\D/g, '') })} required /></Field>
+          {f.track_stock ? (
+            <Field label="Reorder at"><Input inputMode="numeric" className="tabular-nums" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value.replace(/\D/g, '') })} required /></Field>
+          ) : (
+            <Field label="Food cost per serving" hint="Ingredients, roughly. Keeps food profit honest"><MoneyInput value={f.food_cost} onChange={(x) => setF({ ...f, food_cost: x })} /></Field>
+          )}
+          <label className="flex items-start gap-3 text-sm sm:col-span-2">
+            <Switch checked={f.track_stock} onCheckedChange={(x) => setF({ ...f, track_stock: x })} className="mt-0.5" />
+            <span>
+              Count stock of this item
+              <span className="block text-xs text-muted-foreground">On for bottles and packs bought in. Off for dishes made to order: they never run out at the till.</span>
+            </span>
+          </label>
           <Field label="SKU" hint="Your own code, e.g. DRK-014"><Input value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value.toUpperCase() })} maxLength={32} className="font-mono" /></Field>
           <Field label="Barcode" hint="Scan it into this box"><Input value={f.barcode} onChange={(e) => setF({ ...f, barcode: e.target.value.trim() })} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} maxLength={32} inputMode="numeric" className="font-mono" /></Field>
           <Field label="Usual supplier" className="sm:col-span-2">

@@ -57,6 +57,7 @@ const pages: Record<string, React.LazyExoticComponent<() => React.JSX.Element>> 
   accounts: lazy(() => import('./Accounts')),
   audit: lazy(() => import('./Audit')),
   suppliers: lazy(() => import('./Suppliers')),
+  kitchen: lazy(() => import('./Kitchen')),
   settings: lazy(() => import('./Settings')),
 };
 const Account = lazy(() => import('./Account'));

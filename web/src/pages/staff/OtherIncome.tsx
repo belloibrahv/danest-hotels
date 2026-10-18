@@ -1,8 +1,8 @@
-import { Dumbbell, Music, Waves } from 'lucide-react';
+import { Car, ConciergeBell, Dumbbell, Music, Shirt, Sparkles, Waves } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CHARGE_LABELS, CHARGE_METHODS, FACILITIES, FACILITY_LABELS, type ChargeMethod, type Facility } from '../../../../shared/constants';
+import { CHARGE_LABELS, CHARGE_METHODS, OUTLETS, OUTLET_LABELS, type ChargeMethod, type Outlet as Facility } from '../../../../shared/constants';
 import { DateRangePicker, useRange } from '@/components/app/date-range';
 import { DateInput, Field, MoneyInput, SelectField, VoidButton } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section, StatCard } from '@/components/app/page';
@@ -19,7 +19,7 @@ interface Data {
   rows: { id: number; facility: Facility; item: string; customer: string | null; amount: number; method: ChargeMethod; date: string; recorded_by: string; room_number: string | null }[];
   totals: { facility: Facility; total: number; count: number }[];
 }
-const ICON = { gym: Dumbbell, pool: Waves, lounge: Music };
+const ICON = { gym: Dumbbell, pool: Waves, lounge: Music, laundry: Shirt, room_service: ConciergeBell, transport: Car, extras: Sparkles };
 
 export default function OtherIncome() {
   const { user } = useAuth();
@@ -60,12 +60,12 @@ export default function OtherIncome() {
 
   return (
     <>
-      <PageHeader title="Gym, pool & lounge" description="Passes, memberships and bookings — so other income shows up in profit." actions={<DateRangePicker state={range} />} />
+      <PageHeader title="Facilities & services" description="Gym and pool passes, lounge bookings, laundry, room service and transport: paid now or added to the room bill." actions={<DateRangePicker state={range} />} />
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_400px]">
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {FACILITIES.map((x) => (
-              <StatCard key={x} icon={ICON[x]} label={FACILITY_LABELS[x]} value={<Money value={total(x)?.total ?? 0} />} hint={`${total(x)?.count ?? 0} entries`} />
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            {OUTLETS.filter((x) => x === 'gym' || x === 'pool' || x === 'lounge' || total(x)).map((x) => (
+              <StatCard key={x} icon={ICON[x]} label={OUTLET_LABELS[x]} value={<Money value={total(x)?.total ?? 0} />} hint={`${total(x)?.count ?? 0} entries`} />
             ))}
           </div>
           <Section title="Entries" flush>
@@ -92,7 +92,7 @@ export default function OtherIncome() {
                       <TableCell className="pl-5 tabular-nums">{fmtDate(r.date)}</TableCell>
                       <TableCell>
                         {r.item}
-                        <div className="text-xs text-muted-foreground">{FACILITY_LABELS[r.facility]}</div>
+                        <div className="text-xs text-muted-foreground">{OUTLET_LABELS[r.facility]}</div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{r.customer ?? '—'}</TableCell>
                       <TableCell>{r.method === 'room' ? <StatusPill tone="brand">Room {r.room_number}</StatusPill> : CHARGE_LABELS[r.method]}</TableCell>
@@ -121,12 +121,12 @@ export default function OtherIncome() {
 
         <Section title="Record income" className="xl:sticky xl:top-20">
           <form className="grid gap-4" onSubmit={onSubmit}>
-            <ToggleGroup type="single" variant="outline" value={facility} onValueChange={(v) => v && pick(v as Facility)} className="grid w-full grid-cols-3">
-              {FACILITIES.map((x) => {
+            <ToggleGroup type="single" variant="outline" value={facility} onValueChange={(v) => v && pick(v as Facility)} className="grid w-full grid-cols-4">
+              {OUTLETS.map((x) => {
                 const I = ICON[x];
                 return (
                   <ToggleGroupItem key={x} value={x} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">
-                    <I /> {FACILITY_LABELS[x].split(' ')[0]}
+                    <I /> {OUTLET_LABELS[x].split(' ')[0].replace('Airport', 'Transport')}
                   </ToggleGroupItem>
                 );
               })}
@@ -136,7 +136,7 @@ export default function OtherIncome() {
                 <p className="text-xs text-muted-foreground">
                   {can(user, 'manager') ? (
                     <>
-                      No price list for the {FACILITY_LABELS[facility].toLowerCase()} yet.{' '}
+                      No price list for the {OUTLET_LABELS[facility].toLowerCase()} yet.{' '}
                       <Link className="underline" to="/staff/settings?tab=facilities">
                         Add prices
                       </Link>

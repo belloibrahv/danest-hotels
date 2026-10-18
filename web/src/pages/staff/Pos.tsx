@@ -20,7 +20,9 @@ import { cn } from '@/lib/utils';
 export interface Product {
   id: number;
   name: string;
-  category: 'drinks' | 'confectionery';
+  category: 'drinks' | 'confectionery' | 'food';
+  /** 0 = made to order: never runs out, nothing to count. */
+  track_stock?: number;
   unit: string;
   price: number;
   avg_cost?: number;
@@ -54,6 +56,7 @@ export default function Pos() {
   const [cart, setCart] = useState<Map<number, number>>(new Map());
   const [method, setMethod] = useState<ChargeMethod>('cash');
   const [guest, setGuest] = useState('');
+  const [note, setNote] = useState('');
   const inhouse = useApi<{ reservation_id: number; room_number: string; guest_name: string }[]>(method === 'room' ? '/inhouse' : null);
   const { busy, error, setError, submit } = useSubmit();
   const orderRef = useRef<HTMLDivElement>(null);
@@ -66,12 +69,13 @@ export default function Pos() {
   const lines = [...cart.entries()].map(([id, qty]) => ({ p: byId.get(id)!, qty })).filter((l) => l.p);
   const total = lines.reduce((a, l) => a + l.p.price * l.qty, 0);
   const count = lines.reduce((a, l) => a + l.qty, 0);
+  const hasFood = lines.some((l) => l.p.category === 'food');
 
   const add = (p: Product, d = 1) => {
     setError(null);
     setCart((c) => {
       const n = new Map(c);
-      const next = Math.min(p.stock, (n.get(p.id) ?? 0) + d);
+      const next = Math.min(p.track_stock === 0 ? 999 : p.stock, (n.get(p.id) ?? 0) + d);
       if (next <= 0) n.delete(p.id);
       else n.set(p.id, next);
       return n;
@@ -81,15 +85,16 @@ export default function Pos() {
   const charge = () =>
     submit(async () => {
       const r = await api<{ id: number; receipt_no: string; total: number }>('/sales', {
-        body: { method, reservation_id: method === 'room' ? Number(guest) : undefined, items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty })) },
+        body: { method, reservation_id: method === 'room' ? Number(guest) : undefined, kitchen_note: note, items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty })) },
       });
       const room = inhouse.data?.find((g) => String(g.reservation_id) === guest)?.room_number;
       toast.success(method === 'room' ? `${naira(r.total)} added to room ${room}` : `${naira(r.total)} received`, {
-        description: r.receipt_no,
+        description: hasFood ? `${r.receipt_no} · food sent to the kitchen` : r.receipt_no,
         action: { label: 'Print receipt', onClick: () => window.open(`/staff/receipt/${r.id}`, '_blank', 'noopener') },
       });
       setCart(new Map());
       setGuest('');
+      setNote('');
       products.reload();
       till.reload();
     });
@@ -105,6 +110,7 @@ export default function Pos() {
                 <TabsTrigger value="all">All</TabsTrigger>
                 <TabsTrigger value="drinks">Drinks</TabsTrigger>
                 <TabsTrigger value="confectionery">Confectionery</TabsTrigger>
+                {products.data?.some((p) => p.category === 'food') && <TabsTrigger value="food">Food</TabsTrigger>}
               </TabsList>
             </Tabs>
             <div className="relative ml-auto w-full sm:w-64">
@@ -138,8 +144,9 @@ export default function Pos() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5">
               {list.map((p) => {
                 const inCart = cart.get(p.id) ?? 0;
-                const left = p.stock - inCart;
-                const low = p.stock <= p.reorder_level;
+                const made = p.track_stock === 0;
+                const left = made ? Infinity : p.stock - inCart;
+                const low = !made && p.stock <= p.reorder_level;
                 return (
                   <button
                     key={p.id}
@@ -153,7 +160,7 @@ export default function Pos() {
                     {inCart > 0 && <span className="absolute top-2 right-2 z-10 flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-brand-foreground">{inCart}</span>}
                     {productImage(p) && <img src={productImage(p)!} alt="" loading="lazy" className="mb-1 aspect-[4/3] w-full rounded-md bg-muted object-cover" />}
                     <span className="pr-6 text-sm leading-tight font-medium">{p.name}</span>
-                    <span className={cn('text-xs', low ? 'font-medium text-destructive' : 'text-muted-foreground')}>{p.stock === 0 ? 'Out of stock' : `${left} left`}</span>
+                    <span className={cn('text-xs', low ? 'font-medium text-destructive' : 'text-muted-foreground')}>{made ? 'Made to order' : p.stock === 0 ? 'Out of stock' : `${left} left`}</span>
                     <span className="mt-auto text-sm font-semibold tabular-nums">{naira(p.price)}</span>
                   </button>
                 );
@@ -184,7 +191,7 @@ export default function Pos() {
                         <Minus />
                       </Button>
                       <span className="w-6 text-center text-sm tabular-nums">{qty}</span>
-                      <Button variant="ghost" size="icon" className="size-7" onClick={() => add(p, 1)} disabled={qty >= p.stock} aria-label={`One more ${p.name}`}>
+                      <Button variant="ghost" size="icon" className="size-7" onClick={() => add(p, 1)} disabled={p.track_stock !== 0 && qty >= p.stock} aria-label={`One more ${p.name}`}>
                         <Plus />
                       </Button>
                     </div>
@@ -209,6 +216,11 @@ export default function Pos() {
             {method === 'room' && (
               <Field label="In-house guest">
                 <SelectField value={guest} onChange={setGuest} placeholder={inhouse.data?.length === 0 ? 'Nobody is checked in' : 'Choose a room'} options={(inhouse.data ?? []).map((g) => ({ value: String(g.reservation_id), label: `Room ${g.room_number} — ${g.guest_name}` }))} />
+              </Field>
+            )}
+            {hasFood && method !== 'room' && (
+              <Field label="For the kitchen" hint="Table, name or anything the cook should know">
+                <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} placeholder="Table 4 · no pepper" />
               </Field>
             )}
             <ErrorNote error={error} />

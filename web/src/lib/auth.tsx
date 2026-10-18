@@ -65,6 +65,7 @@ const HOME: Partial<Record<Role, string>> = {
   accountant: '/staff/accounts',
   auditor: '/staff/audit',
   bar: '/staff/pos',
+  kitchen: '/staff/kitchen',
   housekeeping: '/staff/housekeeping',
 };
 export const homeFor = (role: Role) => HOME[role] ?? '/staff';

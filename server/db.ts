@@ -583,6 +583,106 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_site_images_slot ON site_images(slot, sort, id);
   `,
+
+  // 7 — kitchen role and orders, food on the menu (stock counting optional), laundry and other
+  //     services billed like the gym and pool, and email as a message channel
+  `
+  CREATE TABLE users_v4 (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('ceo','manager','accountant','auditor','frontdesk','bar','kitchen','housekeeping')),
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER NOT NULL DEFAULT 0,
+    last_login_at TEXT
+  );
+  INSERT INTO users_v4 SELECT id, name, username, password_hash, role, active, created_at, totp_secret, totp_enabled, totp_last_step, last_login_at FROM users;
+  DROP TABLE users;
+  ALTER TABLE users_v4 RENAME TO users;
+
+  CREATE TABLE products_v2 (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('drinks','confectionery','food')),
+    unit TEXT NOT NULL DEFAULT 'bottle',
+    price INTEGER NOT NULL CHECK (price >= 0),
+    avg_cost INTEGER NOT NULL DEFAULT 0,
+    stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    reorder_level INTEGER NOT NULL DEFAULT 12,
+    active INTEGER NOT NULL DEFAULT 1,
+    sku TEXT,
+    barcode TEXT,
+    description TEXT,
+    supplier_id INTEGER REFERENCES suppliers(id),
+    image_v INTEGER NOT NULL DEFAULT 0,
+    track_stock INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO products_v2 (id, name, category, unit, price, avg_cost, stock, reorder_level, active, sku, barcode, description, supplier_id, image_v)
+    SELECT id, name, category, unit, price, avg_cost, stock, reorder_level, active, sku, barcode, description, supplier_id, image_v FROM products;
+  DROP TABLE products;
+  ALTER TABLE products_v2 RENAME TO products;
+  CREATE UNIQUE INDEX idx_products_sku ON products(sku COLLATE NOCASE) WHERE sku IS NOT NULL;
+  CREATE UNIQUE INDEX idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;
+
+  CREATE TABLE facility_income_v3 (
+    id INTEGER PRIMARY KEY,
+    facility TEXT NOT NULL CHECK (facility IN ('gym','pool','lounge','laundry','room_service','transport','extras')),
+    item TEXT NOT NULL,
+    customer TEXT,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    method TEXT NOT NULL CHECK (method IN ('cash','transfer','pos','room')),
+    reservation_id INTEGER REFERENCES reservations(id),
+    date TEXT NOT NULL,
+    recorded_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((method = 'room') = (reservation_id IS NOT NULL))
+  );
+  INSERT INTO facility_income_v3 SELECT id, facility, item, customer, amount, method, reservation_id, date, recorded_by, created_at FROM facility_income;
+  DROP TABLE facility_income;
+  ALTER TABLE facility_income_v3 RENAME TO facility_income;
+  CREATE INDEX idx_fac_date ON facility_income(date);
+  CREATE INDEX idx_fac_res ON facility_income(reservation_id);
+
+  CREATE TABLE facility_items_v2 (
+    id INTEGER PRIMARY KEY,
+    facility TEXT NOT NULL CHECK (facility IN ('gym','pool','lounge','laundry','room_service','transport','extras')),
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL CHECK (price >= 0),
+    active INTEGER NOT NULL DEFAULT 1
+  );
+  INSERT INTO facility_items_v2 SELECT id, facility, name, price, active FROM facility_items;
+  DROP TABLE facility_items;
+  ALTER TABLE facility_items_v2 RENAME TO facility_items;
+
+  -- A till order with food on it goes to the kitchen screen: new → preparing → ready → served.
+  ALTER TABLE sales ADD COLUMN kitchen_status TEXT CHECK (kitchen_status IN ('new','preparing','ready','served'));
+  ALTER TABLE sales ADD COLUMN kitchen_note TEXT;
+  ALTER TABLE sales ADD COLUMN ready_at TEXT;
+  ALTER TABLE sales ADD COLUMN served_at TEXT;
+  CREATE INDEX idx_sales_kitchen ON sales(kitchen_status) WHERE kitchen_status IS NOT NULL;
+
+  CREATE TABLE messages_v2 (
+    id INTEGER PRIMARY KEY,
+    reservation_id INTEGER REFERENCES reservations(id),
+    template TEXT NOT NULL,
+    channel TEXT NOT NULL CHECK (channel IN ('sms','whatsapp','email')),
+    to_phone TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('sent','failed','manual')),
+    provider_ref TEXT,
+    error TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO messages_v2 SELECT * FROM messages;
+  DROP TABLE messages;
+  ALTER TABLE messages_v2 RENAME TO messages;
+  CREATE INDEX idx_messages_res ON messages(reservation_id);
+  `,
 ];
 
 {

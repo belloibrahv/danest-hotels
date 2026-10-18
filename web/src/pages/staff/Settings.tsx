@@ -2,7 +2,7 @@ import { BedDouble, CreditCard, ImageIcon, MessageCircle, Plus, Trash2, Upload }
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { FACILITIES, FACILITY_LABELS, TAX_GROUPS, type Facility, type HotelSettings } from '../../../../shared/constants';
+import { FACILITIES, FACILITY_LABELS, OUTLETS, OUTLET_LABELS, TAX_GROUPS, type HotelSettings, type Outlet as Facility } from '../../../../shared/constants';
 import { Field, MoneyInput, SelectField, useConfirm } from '@/components/app/form';
 import { EmptyState, ErrorNote, LoadingRows, Money, PageHeader, Section } from '@/components/app/page';
 import { StatusPill } from '@/components/app/status';
@@ -31,7 +31,7 @@ export default function Settings() {
           <TabsTrigger value="hotel">Hotel details</TabsTrigger>
           <TabsTrigger value="rooms">Rooms & base rates</TabsTrigger>
           <TabsTrigger value="photos">Website photos</TabsTrigger>
-          <TabsTrigger value="facilities">Gym, pool & lounge prices</TabsTrigger>
+          <TabsTrigger value="facilities">Facility & service prices</TabsTrigger>
           <TabsTrigger value="payments">Payments & messages</TabsTrigger>
           <TabsTrigger value="backups">Backups</TabsTrigger>
         </TabsList>
@@ -394,10 +394,10 @@ function FacilityPrices() {
         ) : (
           <Table>
             <TableBody>
-              {FACILITIES.flatMap((fac) =>
+              {OUTLETS.flatMap((fac) =>
                 data.filter((i) => i.facility === fac).map((i, n) => (
                   <TableRow key={i.id} className={i.active ? '' : 'opacity-50'}>
-                    <TableCell className="w-36 pl-5 text-xs font-medium text-muted-foreground">{n === 0 ? FACILITY_LABELS[fac] : ''}</TableCell>
+                    <TableCell className="w-36 pl-5 text-xs font-medium text-muted-foreground">{n === 0 ? OUTLET_LABELS[fac] : ''}</TableCell>
                     <TableCell>{i.name}</TableCell>
                     <TableCell className="text-right font-medium"><Money value={i.price} /></TableCell>
                     <TableCell className="pr-5 text-right"><Switch checked={!!i.active} onCheckedChange={() => toggle(i)} aria-label={`Show ${i.name}`} /></TableCell>
@@ -413,7 +413,7 @@ function FacilityPrices() {
           className="grid gap-4"
           onSubmit={(e) => (e.preventDefault(), submit(async () => (await api('/settings/facility-items', { body: { ...f, price: Number(f.price) } }), toast.success('Price added'), setF({ ...f, name: '', price: '' }), reload())))}
         >
-          <Field label="Facility"><SelectField value={f.facility} onChange={(v) => setF({ ...f, facility: v as Facility })} options={FACILITIES.map((x) => ({ value: x, label: FACILITY_LABELS[x] }))} /></Field>
+          <Field label="For"><SelectField value={f.facility} onChange={(v) => setF({ ...f, facility: v as Facility })} options={OUTLETS.map((x) => ({ value: x, label: OUTLET_LABELS[x] }))} /></Field>
           <Field label="What is sold"><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={80} placeholder="Pool day pass — adult" /></Field>
           <Field label="Price"><MoneyInput value={f.price} onChange={(v) => setF({ ...f, price: v })} required /></Field>
           <ErrorNote error={error} />

@@ -78,7 +78,7 @@ type Plan = {
   supplier: string | null;
 };
 
-const CATEGORY_ALIASES: Record<string, ProductCategory> = { drink: 'drinks', drinks: 'drinks', beverage: 'drinks', beverages: 'drinks', confectionery: 'confectionery', snack: 'confectionery', snacks: 'confectionery', sweets: 'confectionery' };
+const CATEGORY_ALIASES: Record<string, ProductCategory> = { drink: 'drinks', drinks: 'drinks', beverage: 'drinks', beverages: 'drinks', confectionery: 'confectionery', snack: 'confectionery', snacks: 'confectionery', sweets: 'confectionery', food: 'food', meal: 'food', meals: 'food', kitchen: 'food', menu: 'food' };
 const cell = (r: ImportRow, k: string) => (r[k] === undefined || r[k] === null ? '' : String(r[k]).trim());
 const money = (v: string) => {
   const n = Number(v.replace(/[₦,\s]/g, ''));
@@ -122,7 +122,8 @@ function planImport(rows: ImportRow[]) {
     } else if (!existing) return fail('Give each new item a category (drinks or confectionery)');
     const unit = cell(r, 'unit');
     if (unit) fields.unit = unit.slice(0, 20);
-    else if (!existing) fields.unit = fields.category === 'drinks' ? 'bottle' : 'pack';
+    else if (!existing) fields.unit = fields.category === 'drinks' ? 'bottle' : fields.category === 'food' ? 'plate' : 'pack';
+    if (!existing && fields.category === 'food') fields.track_stock = 0;
     const priceRaw = cell(r, 'price');
     if (priceRaw) {
       const p = money(priceRaw);
@@ -306,8 +307,8 @@ catalog.get(
     const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 180);
     const to = today();
     const from = addDays(to, -(days - 1));
-    const items = all<{ id: number; name: string; category: string; unit: string; stock: number; reorder_level: number; price: number; avg_cost: number; sold: number; revenue: number; cost: number; last_sold: string | null; image_v: number; supplier: string | null }>(
-      `SELECT p.id, p.name, p.category, p.unit, p.stock, p.reorder_level, p.price, p.avg_cost, p.image_v, sup.name AS supplier,
+    const items = all<{ id: number; name: string; category: string; unit: string; stock: number; reorder_level: number; price: number; avg_cost: number; sold: number; revenue: number; cost: number; last_sold: string | null; image_v: number; supplier: string | null; track_stock: number }>(
+      `SELECT p.id, p.name, p.category, p.unit, p.stock, p.reorder_level, p.price, p.avg_cost, p.image_v, p.track_stock, sup.name AS supplier,
               COALESCE(x.sold, 0) AS sold, COALESCE(x.revenue, 0) AS revenue, COALESCE(x.cost, 0) AS cost,
               (SELECT MAX(s2.date) FROM sale_items si2 JOIN sales s2 ON s2.id = si2.sale_id WHERE si2.product_id = p.id) AS last_sold
          FROM products p LEFT JOIN suppliers sup ON sup.id = p.supplier_id
@@ -320,8 +321,8 @@ catalog.get(
       const perDay = p.sold / days;
       const cover = perDay > 0 ? p.stock / perDay : null;
       // Enough for three weeks of the recent pace, topped up from what's on the shelf.
-      const suggest = Math.max(0, Math.ceil(perDay * 21) - p.stock, p.stock <= p.reorder_level ? p.reorder_level * 2 - p.stock : 0);
-      return { ...p, per_day: Math.round(perDay * 10) / 10, cover_days: cover === null ? null : Math.floor(cover), profit: p.revenue - p.cost, suggest };
+      const suggest = !p.track_stock ? 0 : Math.max(0, Math.ceil(perDay * 21) - p.stock, p.stock <= p.reorder_level ? p.reorder_level * 2 - p.stock : 0);
+      return { ...p, per_day: Math.round(perDay * 10) / 10, cover_days: cover === null || !p.track_stock ? null : Math.floor(cover), profit: p.revenue - p.cost, suggest };
     });
     const shrink = all<{ id: number; name: string; units: number; value: number }>(
       `SELECT a.entity_id AS id, p.name, -SUM(json_extract(a.detail, '$.change')) AS units, -SUM(json_extract(a.detail, '$.value')) AS value
@@ -354,14 +355,14 @@ catalog.get(
         revenue,
         profit: revenue - cogs,
         units_sold: items.reduce((a, p) => a + p.sold, 0),
-        out_of_stock: items.filter((p) => p.stock === 0).length,
+        out_of_stock: items.filter((p) => p.track_stock && p.stock === 0).length,
         to_reorder: items.filter((p) => p.suggest > 0).length,
         // Turnover: how many times the shelf's worth sold over the period, at cost.
         turns: value > 0 ? Math.round((cogs / value) * 100) / 100 : null,
         shrinkage_value: shrink.reduce((a, s) => a + s.value, 0),
       },
       best: [...items].filter((p) => p.revenue > 0).sort((a, b) => b.revenue - a.revenue).slice(0, 8),
-      slow: [...items].filter((p) => p.stock > 0 && p.sold === 0).sort((a, b) => b.stock * b.avg_cost - a.stock * a.avg_cost).slice(0, 8),
+      slow: [...items].filter((p) => p.track_stock && p.stock > 0 && p.sold === 0).sort((a, b) => b.stock * b.avg_cost - a.stock * a.avg_cost).slice(0, 8),
       reorder: [...items].filter((p) => p.suggest > 0).sort((a, b) => (a.cover_days ?? 9999) - (b.cover_days ?? 9999)).slice(0, 20),
       categories: PRODUCT_CATEGORIES.map((c) => {
         const xs = items.filter((p) => p.category === c);
