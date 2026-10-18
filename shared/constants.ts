@@ -159,9 +159,6 @@ export const ROOM_STATUSES = ['available', 'occupied', 'cleaning', 'maintenance'
 export type RoomStatus = (typeof ROOM_STATUSES)[number];
 
 export const HOTEL = {
-  name: 'Danest Hotel & Suites',
-  tagline: 'Experience a great comfort',
-  address: '4, Beckley Street, off Adeyi-Estate, Old Bodija Road, Ibadan, Oyo State',
   timezone: 'Africa/Lagos',
 } as const;
 
@@ -211,7 +208,20 @@ export function taxesIncluded(grossByGroup: Partial<Record<TaxGroup, number>>, t
  */
 export interface HotelSettings {
   name: string;
+  /** One word for tight spaces: the app's name on a phone, the sidebar ("Danest"). */
+  short_name: string;
   tagline: string;
+  /** Where the hotel is, in a few words, under the name ("Old Bodija · Ibadan"). */
+  location_label: string;
+  /** The website's opening line and the sentence under it; empty uses a plain default. */
+  hero_title: string;
+  hero_text: string;
+  /** Heading over the map ("On a quiet street off Old Bodija Road"). */
+  location_title: string;
+  /** The hotel's colour, #rrggbb; empty keeps the standard gold. */
+  brand_color: string;
+  /** Set for Danest only: use the crest and building artwork that ship with the app. */
+  builtin_brand: boolean;
   address: string;
   phone: string;
   whatsapp: string;
@@ -234,9 +244,16 @@ export interface HotelSettings {
 }
 
 export const DEFAULT_SETTINGS: HotelSettings = {
-  name: HOTEL.name,
-  tagline: HOTEL.tagline,
-  address: HOTEL.address,
+  name: '',
+  short_name: '',
+  tagline: '',
+  location_label: '',
+  hero_title: '',
+  hero_text: '',
+  location_title: '',
+  brand_color: '',
+  builtin_brand: false,
+  address: '',
   phone: '',
   whatsapp: '',
   email: '',

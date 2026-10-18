@@ -17,5 +17,5 @@ scheduleBackups();
 
 const port = Number(process.env.PORT ?? 4000);
 createApp().listen(port, () => {
-  console.log(`Danest listening on http://localhost:${port}`);
+  console.log(`Listening on http://localhost:${port}`);
 });

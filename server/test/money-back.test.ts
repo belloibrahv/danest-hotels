@@ -55,7 +55,7 @@ const room = (n: string) => get<{ id: number }>('SELECT id FROM rooms WHERE numb
 
 describe('setup', () => {
   test('an owner, three staff, two rooms and a drink in stock', async () => {
-    const r = await call('/setup/owner', { body: { code: 'SETUP-4', name: 'Owner Person', username: 'owner', password: 'owner passphrase 123' } });
+    const r = await call('/setup/owner', { body: { code: 'SETUP-4', hotel_name: 'Test Hotel', name: 'Owner Person', username: 'owner', password: 'owner passphrase 123' } });
     ok(r, 201);
     owner = r.cookie!;
     for (const [username, role] of [['desk', 'frontdesk'], ['bar', 'bar'], ['cleaner', 'housekeeping']]) {

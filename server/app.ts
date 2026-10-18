@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { manifest, monogramSvg, renderIndex } from './branding.ts';
 import { resolve } from 'node:path';
 import { ROLES } from '../shared/constants.ts';
 import { allow, loadSession } from './auth.ts';
@@ -93,6 +94,10 @@ export function createApp() {
   });
   api.use(loadSession);
   api.get('/health', (_req, res) => res.json({ ok: true }));
+  api.get('/public/monogram.svg', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.type('image/svg+xml').send(monogramSvg());
+  });
   api.get('/live', allow(...ROLES), stream);
   api.use('/public', publicApi);
   api.use(website);
@@ -116,6 +121,11 @@ export function createApp() {
 
   const dist = resolve(import.meta.dirname, '../dist');
   if (existsSync(dist)) {
+    // The installed app is named after the hotel in Settings.
+    app.get('/manifest.webmanifest', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('application/manifest+json').send(JSON.stringify(manifest()));
+    });
     // The service worker and manifest decide when a new version reaches staff, so they are never cached.
     app.get(['/sw.js', '/manifest.webmanifest'], (req, res, next) => {
       res.setHeader('Cache-Control', 'no-cache');
@@ -129,7 +139,12 @@ export function createApp() {
     app.use(express.static(dist, { index: false, redirect: false, maxAge: '1h', setHeaders: (res, path) => {
       if (/(sw\.js|\.webmanifest)$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
     } }));
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
+    // Every page gets the hotel's own title, description and icon, for search results and link previews.
+    const template = readFileSync(resolve(dist, 'index.html'), 'utf8');
+    app.get(/^(?!\/api\/).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(renderIndex(template));
+    });
   }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

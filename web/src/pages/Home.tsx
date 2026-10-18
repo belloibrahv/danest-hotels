@@ -126,6 +126,8 @@ export default function Home() {
   const roomiest = types && types.length > 1 ? types.reduce((a, r) => (r.capacity > a.capacity ? r : a)).id : null;
   const contact = hotel?.whatsapp ? { href: waUrl(hotel.whatsapp, `Hello ${hotel.name}, I'd like to ask about a room.`), label: 'WhatsApp us', icon: MessageCircle } : hotel?.phone ? { href: `tel:${hotel.phone}`, label: `Call ${hotel.phone}`, icon: Phone } : null;
   const hero = hotel?.images.hero;
+  const headline = hotel?.hero_title || (hotel ? `Welcome to ${hotel.name}.` : '');
+  const intro = hotel?.hero_text || 'Comfortable rooms and suites, booked directly with the hotel.';
 
   const search = (
     <Card className="gap-0 py-0 shadow-xl ring-1 ring-black/5">
@@ -149,9 +151,9 @@ export default function Home() {
           <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/75 via-black/45 to-black/10" aria-hidden />
           <div className="mx-auto max-w-6xl px-4 pt-20 pb-10 sm:px-6 lg:pt-32">
             <div className="max-w-xl text-white animate-in fade-in slide-in-from-bottom-2 duration-700">
-              <p className="text-xs font-semibold tracking-[0.18em] text-white/80 uppercase">Old Bodija · Ibadan</p>
-              <h1 className="mt-4 font-display text-4xl font-medium tracking-tight text-balance sm:text-6xl">Rest easy in the heart of Bodija.</h1>
-              <p className="mt-5 text-lg text-white/85">Comfortable rooms and suites, a pool, a gym and a lounge, all inside one gated compound. Book directly with the hotel.</p>
+              {hotel?.location_label && <p className="text-xs font-semibold tracking-[0.18em] text-white/80 uppercase">{hotel.location_label}</p>}
+              <h1 className="mt-4 font-display text-4xl font-medium tracking-tight text-balance sm:text-6xl">{headline}</h1>
+              <p className="mt-5 text-lg text-white/85">{intro}</p>
               <HeroActions from={from} contact={contact} dark />
             </div>
             <div className="mt-12 lg:mt-20">{search}</div>
@@ -161,18 +163,22 @@ export default function Home() {
         <section className="relative overflow-hidden bg-[linear-gradient(180deg,var(--brand-soft)_0%,var(--background)_85%)]">
           <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 pt-14 pb-10 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:pt-20">
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-700">
-              <Eyebrow>Old Bodija · Ibadan</Eyebrow>
-              <h1 className="mt-4 font-display text-4xl font-medium tracking-tight text-balance sm:text-5xl lg:text-6xl">Rest easy in the heart of Bodija.</h1>
-              <p className="mt-5 max-w-md text-lg text-muted-foreground">Comfortable rooms and suites, a pool, a gym and a lounge, all inside one gated compound. Book directly with the hotel.</p>
+              {hotel?.location_label && <Eyebrow>{hotel.location_label}</Eyebrow>}
+              <h1 className="mt-4 font-display text-4xl font-medium tracking-tight text-balance sm:text-5xl lg:text-6xl">{headline}</h1>
+              <p className="mt-5 max-w-md text-lg text-muted-foreground">{intro}</p>
               <HeroActions from={from} contact={contact} />
             </div>
-            <div className="relative">
-              <div className="absolute inset-x-8 bottom-4 h-24 rounded-[50%] bg-foreground/10 blur-2xl" />
-              <picture>
-                <source type="image/webp" srcSet="/brand/building-900.webp 900w, /brand/building-1600.webp 1600w" sizes="(max-width: 1024px) 100vw, 55vw" />
-                <img src="/brand/building-1600.png" alt={`${hotel?.name ?? 'The hotel'}: a stone-clad building behind a cream wall and black gate, with palm trees`} width={1600} height={740} className="relative w-full" fetchPriority="high" />
-              </picture>
-            </div>
+            {hotel?.builtin_brand ? (
+              <div className="relative">
+                <div className="absolute inset-x-8 bottom-4 h-24 rounded-[50%] bg-foreground/10 blur-2xl" />
+                <picture>
+                  <source type="image/webp" srcSet="/brand/building-900.webp 900w, /brand/building-1600.webp 1600w" sizes="(max-width: 1024px) 100vw, 55vw" />
+                  <img src="/brand/building-1600.png" alt={`${hotel.name}: a stone-clad building behind a cream wall and black gate, with palm trees`} width={1600} height={740} className="relative w-full" fetchPriority="high" />
+                </picture>
+              </div>
+            ) : (
+              <div className="aspect-[4/3] overflow-hidden rounded-3xl border shadow-sm"><Picture label={hotel?.name ?? 'The hotel'} /></div>
+            )}
           </div>
           <div className="mx-auto max-w-6xl px-4 pb-10 sm:px-6">{search}</div>
         </section>
@@ -285,7 +291,7 @@ export default function Home() {
         <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-24">
           <div className="flex flex-wrap items-end justify-between gap-6">
             <Heading eyebrow="Pool, gym & lounge" title="Everything for a good stay, inside the gate.">
-              For hotel guests, and open to visitors from around Bodija with a day pass.
+              For hotel guests, and open to visitors with a day pass.
             </Heading>
             {contact && (
               <Button variant="outline" asChild>
@@ -365,7 +371,7 @@ export default function Home() {
       <section id="location" className="scroll-mt-20 border-t">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2">
           <div>
-            <Heading eyebrow="Location" title="On a quiet street off Old Bodija Road." />
+            <Heading eyebrow="Location" title={hotel?.location_title || 'How to find us'} />
             <dl className="mt-8 grid gap-6 text-sm">
               <div className="flex gap-3"><MapPin className="mt-0.5 size-5 text-muted-foreground" /><div><dt className="font-medium">Address</dt><dd className="text-muted-foreground">{hotel?.address}</dd></div></div>
               {hotel && <div className="flex gap-3"><Clock className="mt-0.5 size-5 text-muted-foreground" /><div><dt className="font-medium">Check-in · check-out</dt><dd className="text-muted-foreground">From {time12(hotel.check_in_time)} · by {time12(hotel.check_out_time)}</dd></div></div>}

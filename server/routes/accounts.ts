@@ -124,7 +124,7 @@ accounts.get(
     const rows = cashbook(from, to);
     const s = summarise(rows);
     csv(res, `danest-cashbook-${from}-to-${to}.csv`, [
-      ['Danest Hotel & Suites — Cash book'],
+      [`${getSettings().name} — Cash book`],
       [`${from} to ${to}`],
       [],
       ['Date', 'Time (UTC)', 'In / Out', 'Source', 'Reference', 'Party', 'Method', 'Money in', 'Money out', 'Recorded by'],
@@ -328,7 +328,7 @@ accounts.get(
     const t = taxReport(from, to);
     const names = t.configured.map((x) => `${x.name} (${x.rate}%)`);
     csv(res, `danest-taxes-${from}-to-${to}.csv`, [
-      ['Danest Hotel & Suites — Taxes included in revenue'],
+      [`${getSettings().name} — Taxes included in revenue`],
       [`${from} to ${to}`, t.tax_id ? `Tax ID ${t.tax_id}` : ''],
       [],
       ['Month', ...names.flatMap((n) => [`${n} — sales before tax`, `${n} — tax`])],

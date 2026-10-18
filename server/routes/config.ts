@@ -42,6 +42,8 @@ config.post(
     const b = body(req);
     if (typeof b.code !== 'string' || !checkSetupCode(b.code)) throw new HttpError(403, 'That setup code is not right. It is in the server log or the DANEST_SETUP_CODE setting.');
     const name = str(b, 'name', { max: 80, min: 3 });
+    const hotelName = str(b, 'hotel_name', { max: 80, min: 2 });
+    const hotelAddress = str(b, 'hotel_address', { max: 200, optional: true });
     const username = str(b, 'username', { max: 32, min: 3, pattern: /^[a-z0-9._-]+$/i }).toLowerCase();
     const password = typeof b.password === 'string' ? b.password : '';
     const problem = passwordProblem(password);
@@ -51,6 +53,7 @@ config.post(
       // The person setting the hotel up is its owner: everything a manager can do, plus the executive view.
       const { id } = run("INSERT INTO users (name, username, role, password_hash) VALUES (?,?, 'ceo', ?)", name, username, hashPassword(password));
       audit(id, 'setup_owner', 'user', id);
+      saveSettings({ name: hotelName, short_name: hotelName.split(/\s+/)[0], address: hotelAddress });
       return id;
     });
     createSession(req, res, id);
@@ -70,7 +73,7 @@ config.get(
     const img = publicImages();
     res.json({
       ...s, bank_details: undefined, summary_phone: undefined, summary_email: undefined, tax_id: undefined, facility_items: items, bookable: rooms > 0, online_payments: paystackEnabled() && s.deposit_percent > 0,
-      images: { hero: img.hero, gallery: img.gallery, facilities: img.facilities },
+      images: { hero: img.hero, logo: img.logo, gallery: img.gallery, facilities: img.facilities },
     });
   }),
 );
@@ -97,9 +100,16 @@ config.put(
     if (highlights.length > 6) throw bad('Up to 6 highlights');
     const reviews = Array.isArray(b.reviews) ? b.reviews : [];
     if (reviews.length > 9) throw bad('Up to 9 reviews');
-    const next: HotelSettings = {
+    // builtin_brand is fixed by the installation, never by a form.
+    const next: Omit<HotelSettings, 'builtin_brand'> = {
       name: str(b, 'name', { max: 80 }),
+      short_name: str(b, 'short_name', { max: 20, optional: true }) || str(b, 'name', { max: 80 }).split(/\s+/)[0],
       tagline: opt('tagline', 120),
+      location_label: opt('location_label', 60),
+      hero_title: opt('hero_title', 90),
+      hero_text: opt('hero_text', 240),
+      location_title: opt('location_title', 90),
+      brand_color: str(b, 'brand_color', { max: 7, optional: true, pattern: /^#[0-9a-f]{6}$/i }),
       address: str(b, 'address', { max: 200 }),
       phone: str(b, 'phone', { max: 20, optional: true, pattern: PHONE_RE }),
       whatsapp: str(b, 'whatsapp', { max: 20, optional: true, pattern: PHONE_RE }),
@@ -124,7 +134,7 @@ config.put(
     };
     saveSettings(next);
     audit(currentUser(req).id, 'update', 'settings', null);
-    res.json(next);
+    res.json(getSettings());
   }),
 );
 

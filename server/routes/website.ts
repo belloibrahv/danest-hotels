@@ -13,10 +13,10 @@ import { HttpError, bad, body, h, str } from '../lib.ts';
 export const website = Router();
 
 const MAX_PHOTO = 900 * 1024;
-const SLOT_LIMIT = (slot: string) => (slot === 'hero' || slot.startsWith('facility:') ? 1 : slot === 'gallery' ? 12 : 6);
+const SLOT_LIMIT = (slot: string) => (slot === 'hero' || slot === 'logo' || slot.startsWith('facility:') ? 1 : slot === 'gallery' ? 12 : 6);
 
 function checkSlot(slot: string) {
-  if (slot === 'hero' || slot === 'gallery') return;
+  if (slot === 'hero' || slot === 'gallery' || slot === 'logo') return;
   const [kind, key] = slot.split(':');
   if (kind === 'facility' && (FACILITIES as readonly string[]).includes(key)) return;
   if (kind === 'room_type' && /^\d+$/.test(key) && get('SELECT 1 FROM room_types WHERE id = ?', Number(key))) return;
@@ -32,6 +32,7 @@ export function publicImages() {
   const pick = (slot: string) => rows.filter((r) => r.slot === slot).map(({ id, alt }) => ({ id, alt }));
   return {
     hero: pick('hero')[0] ?? null,
+    logo: pick('logo')[0] ?? null,
     gallery: pick('gallery'),
     facilities: Object.fromEntries(FACILITIES.map((f) => [f, pick(`facility:${f}`)[0] ?? null])),
     rooms: (typeId: number) => pick(`room_type:${typeId}`),

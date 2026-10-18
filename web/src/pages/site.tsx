@@ -30,8 +30,8 @@ export function SiteHeader() {
         <Link to="/" className="flex items-center gap-2.5">
           <Crest className="size-12" />
           <span className="leading-tight">
-            <span className="block text-sm font-semibold">{hotel?.name ?? 'Danest Hotel & Suites'}</span>
-            <span className="block text-[11px] text-muted-foreground">Old Bodija, Ibadan</span>
+            <span className="block text-sm font-semibold">{hotel?.name}</span>
+            {hotel?.location_label && <span className="block text-[11px] text-muted-foreground">{hotel.location_label}</span>}
           </span>
         </Link>
         <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label="Main">

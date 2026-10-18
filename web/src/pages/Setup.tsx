@@ -14,7 +14,7 @@ export default function Setup() {
   const { refresh } = useAuth();
   const nav = useNavigate();
   const [status, setStatus] = useState<boolean | null>(null);
-  const [f, setF] = useState({ code: '', name: '', username: '', password: '', confirm: '' });
+  const [f, setF] = useState({ code: '', hotel_name: '', hotel_address: '', name: '', username: '', password: '', confirm: '' });
   const { busy, error, setError, submit } = useSubmit();
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function Setup() {
     e.preventDefault();
     if (f.password !== f.confirm) return setError("The passwords don't match");
     submit(async () => {
-      await api('/setup/owner', { body: { code: f.code, name: f.name, username: f.username, password: f.password } });
+      await api('/setup/owner', { body: { code: f.code, hotel_name: f.hotel_name, hotel_address: f.hotel_address, name: f.name, username: f.username, password: f.password } });
       await refresh();
       nav('/staff?welcome=1', { replace: true });
     });
@@ -59,7 +59,13 @@ export default function Setup() {
         <Field label="Setup code" htmlFor="code" hint="From whoever installed the system.">
           <Input id="code" className="font-mono uppercase" autoComplete="off" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} required />
         </Field>
-        <Field label="Full name" htmlFor="name">
+        <Field label="Hotel name" htmlFor="hotel" hint="As guests should see it">
+          <Input id="hotel" value={f.hotel_name} onChange={(e) => setF({ ...f, hotel_name: e.target.value })} required minLength={2} maxLength={80} placeholder="Danest Hotel & Suites" />
+        </Field>
+        <Field label="Hotel address" htmlFor="address">
+          <Input id="address" autoComplete="street-address" value={f.hotel_address} onChange={(e) => setF({ ...f, hotel_address: e.target.value })} maxLength={200} placeholder="Street, area, city" />
+        </Field>
+        <Field label="Your full name" htmlFor="name">
           <Input id="name" autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required minLength={3} maxLength={80} />
         </Field>
         <Field label="Username" htmlFor="username">

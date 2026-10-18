@@ -78,7 +78,7 @@ function TwoStep() {
   };
   const download = () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([`Danest — recovery codes for ${user!.username}\nEach works once.\n\n${codes!.join('\n')}\n`], { type: 'text/plain' }));
+    a.href = URL.createObjectURL(new Blob([`Recovery codes for ${user!.username}\nEach works once.\n\n${codes!.join('\n')}\n`], { type: 'text/plain' }));
     a.download = `danest-recovery-codes-${user!.username}.txt`;
     a.click();
     URL.revokeObjectURL(a.href);

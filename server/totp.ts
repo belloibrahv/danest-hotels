@@ -1,3 +1,4 @@
+import { getSettings } from './settings.ts';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // RFC 6238 time-based one-time passwords (Google Authenticator, Microsoft Authenticator, Authy…).
@@ -54,7 +55,7 @@ export function verifyTotp(secret: string, code: string, now = Date.now()): numb
 export const totpNow = (secret: string, now = Date.now()) => hotp(base32Decode(secret), currentStep(now));
 
 export function otpauthUri(secret: string, account: string) {
-  const issuer = 'Danest Hotel';
+  const issuer = getSettings().name || 'Hotel';
   return `otpauth://totp/${encodeURIComponent(`${issuer}:${account}`)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=${STEP_SECONDS}`;
 }
 

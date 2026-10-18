@@ -80,7 +80,7 @@ let typeId = 0;
 
 describe('setup', () => {
   test('owner, hotel, one room type at ₦30,000 with three rooms', async () => {
-    const r = await call('/setup/owner', { body: { code: 'SETUP-3', name: 'Owner Person', username: 'owner', password: 'owner passphrase 123' } });
+    const r = await call('/setup/owner', { body: { code: 'SETUP-3', hotel_name: 'Test Hotel', name: 'Owner Person', username: 'owner', password: 'owner passphrase 123' } });
     ok(r, 201);
     owner = r.cookie!;
     ok(await call('/settings', { cookie: owner, method: 'PUT', body: { name: 'Danest Hotel & Suites', tagline: '', address: '4 Beckley Street, Ibadan', phone: '08012345678', check_in_time: '14:00', check_out_time: '12:00', highlights: [], deposit_percent: 30, bank_details: 'GTB 0123456789' } }));

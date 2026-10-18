@@ -6,6 +6,7 @@ import { CHARGES_SQL, PAID_SQL } from './reservations.ts';
 import { allow, currentUser } from '../auth.ts';
 import { csv } from '../csv.ts';
 import { periodTaxes } from '../tax.ts';
+import { getSettings } from '../settings.ts';
 import { all, audit, get, run, tx } from '../db.ts';
 import { HttpError, addDays, bad, body, date, daysBetween, h, int, oneOf, range, str, today } from '../lib.ts';
 
@@ -294,7 +295,7 @@ finance.get(
   h((req, res) => {
     const { from, to } = range(req);
     const p = profitAndLoss(from, to);
-    const rows: (string | number)[][] = [['Danest Hotel & Suites — Profit & Loss'], [`${from} to ${to}`], [], ['Section', 'Line', 'Amount (NGN)']];
+    const rows: (string | number)[][] = [[`${getSettings().name} — Profit & Loss`], [`${from} to ${to}`], [], ['Section', 'Line', 'Amount (NGN)']];
     for (const r of p.revenue) rows.push(['Revenue', r.label, r.amount]);
     rows.push(['Revenue', 'Total revenue', p.totalRevenue]);
     for (const r of p.costOfSales) rows.push(['Cost of sales', r.label, r.amount]);

@@ -9,6 +9,7 @@ import { LoadingRows } from '@/components/app/page';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider } from '@/lib/auth';
+import { useBrandColor } from '@/lib/hotel';
 import { registerServiceWorker } from '@/lib/pwa';
 import Home from '@/pages/Home';
 import './index.css';
@@ -22,10 +23,17 @@ const Setup = lazy(() => import('@/pages/Setup'));
 
 registerServiceWorker();
 
+/** Applies the hotel's colour from Settings, everywhere. */
+function BrandColor() {
+  useBrandColor();
+  return null;
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="danest-theme">
       <ThemeColorSync />
+      <BrandColor />
       <TooltipProvider delayDuration={300}>
         <BrowserRouter>
           <AuthProvider>

@@ -740,6 +740,23 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_shifts_date ON shifts(date);
   `,
+
+  // 9 — the hotel's identity moves into settings, so one app can serve any hotel. An existing
+  //     installation is Danest: keep exactly what it showed before, unless already set.
+  `
+  INSERT OR IGNORE INTO settings (key, value)
+    SELECT k, v FROM (
+      SELECT 'name' k, '"Danest Hotel & Suites"' v UNION ALL
+      SELECT 'short_name', '"Danest"' UNION ALL
+      SELECT 'tagline', '"Experience a great comfort"' UNION ALL
+      SELECT 'address', '"4, Beckley Street, off Adeyi-Estate, Old Bodija Road, Ibadan, Oyo State"' UNION ALL
+      SELECT 'location_label', '"Old Bodija · Ibadan"' UNION ALL
+      SELECT 'hero_title', '"Rest easy in the heart of Bodija."' UNION ALL
+      SELECT 'hero_text', '"Comfortable rooms and suites, a pool, a gym and a lounge, all inside one gated compound. Book directly with the hotel."' UNION ALL
+      SELECT 'location_title', '"On a quiet street off Old Bodija Road."' UNION ALL
+      SELECT 'builtin_brand', 'true'
+    ) WHERE EXISTS (SELECT 1 FROM users);
+  `,
 ];
 
 {

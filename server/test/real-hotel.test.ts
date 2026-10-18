@@ -53,12 +53,18 @@ describe('first run', () => {
 
   test('the owner account needs the setup code, and can only be created once', async () => {
     ok(await call('/setup/owner', { body: { code: 'WRONG', name: 'Owner Name', username: 'owner', password: OWNER_PW } }), 403);
-    const r = await call('/setup/owner', { body: { code: 'test-setup-code', name: 'Owner Name', username: 'owner', password: OWNER_PW } });
+    const r = await call('/setup/owner', { body: { code: 'test-setup-code', hotel_name: 'Danest Hotel & Suites', hotel_address: '4 Beckley Street, Old Bodija, Ibadan', name: 'Owner Name', username: 'owner', password: OWNER_PW } });
     ok(r, 201);
     owner = r.cookie!;
     assert.equal((await call('/auth/me', { cookie: owner })).json.role, 'ceo', 'the person who sets the hotel up is its owner');
     ok(await call('/setup/owner', { body: { code: 'TEST-SETUP-CODE', name: 'Intruder', username: 'x2', password: 'another long one' } }), 409);
     assert.equal((await call('/setup/status')).json.needs_setup, false);
+    const site = (await call('/public/hotel')).json;
+    assert.equal(site.name, 'Danest Hotel & Suites', 'the hotel is named at setup');
+    assert.equal(site.short_name, 'Danest');
+    assert.equal(site.builtin_brand, false, 'a new installation starts without any built-in artwork');
+    const { monogramSvg } = await import('../branding.ts');
+    assert.match(monogramSvg(), />D</, 'its icon is its initials until a logo is uploaded');
   });
 });
 

@@ -173,7 +173,14 @@ export function seed(opts: { live?: boolean } = {}) {
     }));
 
     // The public website never shows an invented phone number or email: on a live database these stay for the owner to fill in.
-    for (const [k, v] of Object.entries({ ...(!opts.live && { phone: '0803 000 0000', email: 'frontdesk@example.com' }), highlights: [
+    for (const [k, v] of Object.entries({
+      ...(!opts.live && { phone: '0803 000 0000', email: 'frontdesk@example.com' }),
+      // The test data is Danest's: its name, place, wording and the crest that ships with the app.
+      name: 'Danest Hotel & Suites', short_name: 'Danest', tagline: 'Experience a great comfort',
+      address: '4, Beckley Street, off Adeyi-Estate, Old Bodija Road, Ibadan, Oyo State', location_label: 'Old Bodija · Ibadan',
+      hero_title: 'Rest easy in the heart of Bodija.', hero_text: 'Comfortable rooms and suites, a pool, a gym and a lounge, all inside one gated compound. Book directly with the hotel.',
+      location_title: 'On a quiet street off Old Bodija Road.', builtin_brand: true,
+      highlights: [
       { title: 'Gated & secure', text: 'Guarded around the clock' },
       { title: 'Power that stays on', text: 'Generator backup, day and night' },
       { title: 'Free Wi-Fi', text: 'In every room and the lounge' },

@@ -71,7 +71,9 @@ function HotelForm() {
         <Section title="Identity & contact" description="Shown on the website, invoices, receipts and guest messages">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Hotel name"><Input value={f.name} onChange={(e) => set('name', e.target.value)} required maxLength={80} /></Field>
+            <Field label="Short name" hint="On phones and in the sidebar"><Input value={f.short_name} onChange={(e) => set('short_name', e.target.value)} maxLength={20} placeholder={f.name.split(' ')[0]} /></Field>
             <Field label="Tagline"><Input value={f.tagline} onChange={(e) => set('tagline', e.target.value)} maxLength={120} /></Field>
+            <Field label="Area, city" hint="Under the name everywhere"><Input value={f.location_label} onChange={(e) => set('location_label', e.target.value)} maxLength={60} placeholder="Old Bodija · Ibadan" /></Field>
             <Field label="Address" className="sm:col-span-2"><Input value={f.address} onChange={(e) => set('address', e.target.value)} required maxLength={200} /></Field>
             <Field label="Front desk phone" hint="Guests call this to confirm"><Input type="tel" value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="080…" /></Field>
             <Field label="WhatsApp"><Input type="tel" value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} placeholder="Optional" /></Field>
@@ -80,6 +82,20 @@ function HotelForm() {
               <Field label="Check-in from"><Input type="time" value={f.check_in_time} onChange={(e) => set('check_in_time', e.target.value)} required /></Field>
               <Field label="Check-out by"><Input type="time" value={f.check_out_time} onChange={(e) => set('check_out_time', e.target.value)} required /></Field>
             </div>
+          </div>
+        </Section>
+        <Section title="Website wording" description="The opening of the website. Say what is true and specific: what guests get and where.">
+          <div className="grid gap-4">
+            <Field label="Headline"><Input value={f.hero_title} onChange={(e) => set('hero_title', e.target.value)} maxLength={90} placeholder={`Welcome to ${f.name}.`} /></Field>
+            <Field label="Under the headline"><Textarea value={f.hero_text} onChange={(e) => set('hero_text', e.target.value)} maxLength={240} rows={2} placeholder="Comfortable rooms and suites, a pool and a lounge, booked directly with the hotel." /></Field>
+            <Field label="Over the map"><Input value={f.location_title} onChange={(e) => set('location_title', e.target.value)} maxLength={90} placeholder="On a quiet street off the main road." /></Field>
+            <Field label="Brand colour" hint="Buttons, highlights and charts. Leave empty for the standard gold">
+              <div className="flex items-center gap-2">
+                <input type="color" aria-label="Pick a colour" value={f.brand_color || '#b8862b'} onChange={(e) => set('brand_color', e.target.value)} className="h-9 w-12 cursor-pointer rounded-md border bg-background p-1" />
+                <Input value={f.brand_color} onChange={(e) => set('brand_color', e.target.value.trim())} maxLength={7} placeholder="#b8862b" className="w-32 font-mono" />
+                {f.brand_color && <Button type="button" variant="ghost" size="sm" onClick={() => set('brand_color', '')}>Use standard</Button>}
+              </div>
+            </Field>
           </div>
         </Section>
         <Section title="Invoices">
@@ -489,6 +505,7 @@ function WebsitePhotos() {
   if (!images.data || !types.data) return <LoadingRows />;
   const inSlot = (slot: string) => images.data!.filter((i) => i.slot === slot);
   const places = [
+    { slot: 'logo', title: 'Logo', hint: 'Shown round, on white, on every page, invoice and receipt, and as the app icon. A square image works best.', max: 1, wide: false },
     { slot: 'hero', title: 'Main banner', hint: 'The first thing visitors see. A wide, bright photo of the building or your best room. Landscape works best.', max: 1, wide: true },
     ...types.data.filter((t) => t.active).map((t) => ({ slot: `room_type:${t.id}`, title: t.name, hint: 'Up to 6 photos: the bed, the bathroom, the view. The first one leads the room card.', max: 6, wide: false })),
     ...FACILITIES.map((f) => ({ slot: `facility:${f}`, title: FACILITY_LABELS[f], hint: 'One photo for this facility.', max: 1, wide: false })),

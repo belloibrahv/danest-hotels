@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api, fmtDate, naira, nairaShort, pct } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useApi, useSubmit } from '@/lib/hooks';
+import { useHotel } from '@/lib/hotel';
 import { useLive } from '@/lib/live';
 import { fmtMonth, recentMonths } from '@/lib/months';
 import { cn } from '@/lib/utils';
@@ -92,6 +93,7 @@ const profitChart = { net_profit: { label: 'Net profit', color: 'var(--chart-1)'
 
 export default function Executive() {
   const { user } = useAuth();
+  const hotel = useHotel();
   const [month, setMonth] = useState(recentMonths()[0]);
   const [editing, setEditing] = useState(false);
   const [v, setV] = useState(0);
@@ -102,7 +104,7 @@ export default function Executive() {
   const header = (
     <PageHeader
       eyebrow={<span className="inline-flex items-center gap-1.5"><Crown className="size-3.5" /> Owner's view</span>}
-      title={`How Danest is doing, ${firstName}`}
+      title={`How ${hotel?.short_name || 'the hotel'} is doing, ${firstName}`}
       description={d ? `${fmtMonth(d.month)} · ${d.current ? `day ${d.elapsed} of ${d.month_days}` : 'full month'} · compared like-for-like with the same days last month and last year` : 'Loading…'}
       actions={
         <>

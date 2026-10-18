@@ -12,7 +12,7 @@ export function registerServiceWorker() {
     if (!reg) return;
     // A new deploy is ready. Never reload under someone mid-check-in: let them choose when.
     const offer = (worker: ServiceWorker) =>
-      toast('A new version of Danest is ready', {
+      toast('A new version of the app is ready', {
         id: 'update',
         duration: Infinity,
         description: 'Reload when you finish what you are doing.',

@@ -1,17 +1,23 @@
 import type { ReactNode } from 'react';
 import type { HotelSettings } from '../../../../shared/constants';
+import { initialsOf, photoUrl, useHotel } from '@/lib/hotel';
 import { cn } from '@/lib/utils';
 
-/** The Danest crest. Always on white (it is a white roundel), sharp at any size and on any screen. */
+/**
+ * The hotel's mark: the logo uploaded in Settings, or Danest's own crest, or until a hotel has a
+ * logo, its initials in its colour. Round, on white, sharp at any size.
+ */
 export function Crest({ className }: { className?: string }) {
+  const hotel = useHotel();
+  const base = cn('shrink-0 rounded-full bg-white object-contain ring-1 ring-border', className);
+  if (!hotel) return <span className={cn(base, 'inline-block bg-muted')} aria-hidden />;
+  if (hotel.images.logo) return <img src={photoUrl(hotel.images.logo)} alt="" className={base} />;
+  if (hotel.builtin_brand)
+    return <img src="/brand/crest-128.png" srcSet="/brand/crest-128.png 128w, /brand/crest-512.png 512w" sizes="(min-resolution: 2dppx) 128px, 64px" alt="" className={base} />;
   return (
-    <img
-      src="/brand/crest-128.png"
-      srcSet="/brand/crest-128.png 128w, /brand/crest-512.png 512w"
-      sizes="(min-resolution: 2dppx) 128px, 64px"
-      alt=""
-      className={cn('shrink-0 rounded-full bg-white object-contain ring-1 ring-border', className)}
-    />
+    <span className={cn(base, 'inline-flex items-center justify-center bg-brand font-display font-medium text-brand-foreground ring-0 [container-type:inline-size]')} aria-hidden>
+      <span className="text-[38cqi] leading-none">{initialsOf(hotel.name || hotel.short_name)}</span>
+    </span>
   );
 }
 

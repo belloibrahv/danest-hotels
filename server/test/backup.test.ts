@@ -1,5 +1,5 @@
 // Backups against a real database file and a stand-in for off-site storage (an S3-style bucket).
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -40,13 +40,14 @@ before(async () => {
   server = createApp().listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as AddressInfo).port}/api`;
-  const r = await fetch(`${base}/setup/owner`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-danest-request': '1' }, body: JSON.stringify({ code: 'BACKUP-TEST', name: 'The Owner', username: 'owner', password: 'owner passphrase 1' }) });
+  const r = await fetch(`${base}/setup/owner`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-danest-request': '1' }, body: JSON.stringify({ code: 'BACKUP-TEST', hotel_name: 'Backup Test Hotel', name: 'The Owner', username: 'owner', password: 'owner passphrase 1' }) });
   owner = r.headers.get('set-cookie')!.split(';')[0];
 });
 after(() => {
   server.closeAllConnections();
   server.close();
   bucket.close();
+  rmSync(dir, { recursive: true, force: true });
 });
 
 const call = (path: string, body?: unknown) =>

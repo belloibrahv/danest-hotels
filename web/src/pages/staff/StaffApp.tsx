@@ -31,6 +31,7 @@ import {
 import { can, homeFor, useAuth } from '@/lib/auth';
 import { LiveBadge, LiveProvider } from '@/lib/live';
 import { useApi } from '@/lib/hooks';
+import { useHotel } from '@/lib/hotel';
 import { useInstall } from '@/lib/pwa';
 import { DeskProvider, useDesk } from './desk/Desk';
 import Login from './Login';
@@ -109,6 +110,7 @@ export default function StaffApp() {
 
 function Shell() {
   const { user } = useAuth();
+  const hotel = useHotel();
   const desk = useDesk();
   const loc = useLocation();
   const [palette, setPalette] = useState(false);
@@ -138,7 +140,7 @@ function Shell() {
       <SidebarInset className="min-w-0">
         <header data-app-chrome className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <SidebarTrigger className="-ml-1" />
-          <NavLink to={homeFor(user!.role)} className="md:hidden" aria-label="Danest Hotel & Suites, home">
+          <NavLink to={homeFor(user!.role)} className="md:hidden" aria-label={`${hotel?.name ?? "Hotel"}, home`}>
             <Crest className="size-9" />
           </NavLink>
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
@@ -177,6 +179,7 @@ function Shell() {
 
 function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) {
   const { user, logout } = useAuth();
+  const hotel = useHotel();
   const install = useInstall();
   const { isMobile, setOpenMobile } = useSidebar();
   const loc = useLocation();
@@ -191,13 +194,13 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
       <SidebarHeader>
         <NavLink
           to={homeFor(user!.role)}
-          aria-label="Danest Hotel & Suites, home"
+          aria-label={`${hotel?.name ?? "Hotel"}, home`}
           className="flex items-center gap-3 rounded-lg p-1.5 transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
         >
           <Crest className="size-12 transition-[width,height] group-data-[collapsible=icon]:size-8" />
           <div className="grid min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-[15px] font-semibold tracking-tight">Danest</span>
-            <span className="truncate text-xs text-muted-foreground">Hotel &amp; Suites</span>
+            <span className="truncate text-[15px] font-semibold tracking-tight">{hotel?.short_name}</span>
+            <span className="truncate text-xs text-muted-foreground">{hotel?.location_label || hotel?.name.replace(hotel.short_name, "").trim()}</span>
           </div>
         </NavLink>
       </SidebarHeader>
@@ -265,7 +268,7 @@ function AppSidebar({ items, pending }: { items: typeof NAV; pending: number }) 
                 </DropdownMenuItem>
                 {install && (
                   <DropdownMenuItem onSelect={() => install()}>
-                    <MonitorDown /> Install Danest app
+                    <MonitorDown /> Install {hotel?.short_name} app
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
