@@ -203,7 +203,7 @@ export function profitAndLoss(from: string, to: string) {
   revenue.rooms = roomNightsByDay(from, to).reduce((a, d) => a + d.revenue, 0);
   revenue.cancellations = retainedBetween(from, to);
 
-  const cogs: Money = { drinks: 0, confectionery: 0, food: 0 };
+  const cogs: Money = { drinks: 0, confectionery: 0 };
   for (const r of all<{ category: ProductCategory; sales: number; cost: number }>(
     `SELECT p.category, SUM(si.qty * si.unit_price) sales, SUM(si.qty * si.unit_cost) cost
        FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
@@ -212,7 +212,8 @@ export function profitAndLoss(from: string, to: string) {
     to,
   )) {
     revenue[r.category] = r.sales;
-    cogs[r.category] = r.cost;
+    // Food's cost is what the kitchen actually spends (an expense line), never the per-dish estimate.
+    if (r.category !== 'food') cogs[r.category] = r.cost;
   }
   for (const r of all<{ facility: Outlet; v: number }>('SELECT facility, SUM(amount) v FROM facility_income WHERE date BETWEEN ? AND ? GROUP BY facility', from, to)) {
     revenue[r.facility] = r.v;
@@ -223,7 +224,7 @@ export function profitAndLoss(from: string, to: string) {
   const operating = EXPENSE_CATEGORIES.filter((c) => c.kind === 'operating').map((c) => ({ key: c.key, label: c.label, amount: byCategory.get(c.key) ?? 0 }));
 
   const totalRevenue = Object.values(revenue).reduce((a, b) => a + b, 0);
-  const costOfSales = cogs.drinks + cogs.confectionery + cogs.food + direct.reduce((a, c) => a + c.amount, 0);
+  const costOfSales = cogs.drinks + cogs.confectionery + direct.reduce((a, c) => a + c.amount, 0);
   const grossProfit = totalRevenue - costOfSales;
   const totalOperating = operating.reduce((a, c) => a + c.amount, 0);
 
@@ -235,7 +236,6 @@ export function profitAndLoss(from: string, to: string) {
     costOfSales: [
       { key: 'cogs_drinks', label: 'Drinks sold (at cost)', amount: cogs.drinks },
       { key: 'cogs_confectionery', label: 'Confectionery sold (at cost)', amount: cogs.confectionery },
-      { key: 'cogs_food', label: 'Food sold (at food cost)', amount: cogs.food },
       ...direct,
     ],
     totalCostOfSales: costOfSales,

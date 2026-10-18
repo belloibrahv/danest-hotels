@@ -363,7 +363,7 @@ function ProductDialog({ product, onClose, onSaved }: { product: Product | 'new'
           {f.track_stock ? (
             <Field label="Reorder at"><Input inputMode="numeric" className="tabular-nums" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value.replace(/\D/g, '') })} required /></Field>
           ) : (
-            <Field label="Food cost per serving" hint="Ingredients, roughly. Keeps food profit honest"><MoneyInput value={f.food_cost} onChange={(x) => setF({ ...f, food_cost: x })} /></Field>
+            <Field label="Food cost per serving" hint="Ingredients, roughly. For the menu's profit estimates"><MoneyInput value={f.food_cost} onChange={(x) => setF({ ...f, food_cost: x })} /></Field>
           )}
           <label className="flex items-start gap-3 text-sm sm:col-span-2">
             <Switch checked={f.track_stock} onCheckedChange={(x) => setF({ ...f, track_stock: x })} className="mt-0.5" />

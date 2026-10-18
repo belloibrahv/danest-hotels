@@ -123,6 +123,8 @@ export type StreamKey = (typeof STREAMS)[number]['key'];
  */
 export const EXPENSE_CATEGORIES = [
   { key: 'housekeeping', label: 'Room supplies & laundry', kind: 'direct' },
+  // What the kitchen actually spends. The food cost set per dish is an estimate for the menu, not a cost in the books.
+  { key: 'kitchen', label: 'Kitchen ingredients & gas', kind: 'direct' },
   { key: 'salaries', label: 'Salaries & wages', kind: 'operating' },
   { key: 'diesel', label: 'Diesel (generator)', kind: 'operating' },
   { key: 'electricity', label: 'Electricity (NEPA) bill', kind: 'operating' },

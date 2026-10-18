@@ -441,6 +441,7 @@ export function seed(opts: { live?: boolean } = {}) {
       if (dom % 3 === 0) exp('diesel', `Diesel ${between(150, 220)} litres`, round(between(150, 220) * 1300, 1000), 'Bodija filling station');
       if (weekday(d) === 2) exp('electricity', 'Prepaid electricity units (IBEDC)', round(between(80_000, 120_000), 5000), 'IBEDC');
       if (chance(0.12)) exp('repairs', pick(['Generator servicing', 'AC gas refill — room ' + pick(rooms).number, 'Plumbing repair', 'Replace bulbs & sockets', 'Fix water heater', 'Door lock replacement']), round(between(15_000, 160_000), 1000), pick(['Kola Electricals', 'Baba Sule Plumbing', 'CoolAir Services', 'Generator Doctor']));
+      if (weekday(d) === 1 || weekday(d) === 4) exp('kitchen', pick(['Bodija market: rice, beans, peppers, oil', 'Meat & chicken (Bodija abattoir)', 'Cooking gas refill', 'Fish, yam & plantain']), round(between(55_000, 110_000), 1000), pick(['Bodija market', 'Iya Bisi provisions', 'Gas plant, Agodi']));
       if (weekday(d) === 3) exp('housekeeping', 'Toiletries, detergent & laundry', round(between(45_000, 85_000), 1000), 'Dugbe Wholesale Mart');
       if (dom === 5) exp('pool_gym', 'Pool chlorine & testing kit', 65_000, 'AquaClean Ibadan');
       if (dom === 15) exp('pool_gym', 'Gym equipment servicing', 35_000);

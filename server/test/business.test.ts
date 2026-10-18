@@ -430,7 +430,8 @@ describe('the kitchen and services', () => {
     assert.equal(get<{ k: string | null }>('SELECT kitchen_status k FROM sales WHERE id = ?', drinksOnly.json.id)!.k, null);
     const pnl = (await call('/reports/pnl', { cookie: accountant })).json;
     assert.ok(pnl.revenue.find((r: any) => r.key === 'food').amount >= 18_000);
-    assert.ok(pnl.costOfSales.find((c: any) => c.key === 'cogs_food').amount >= 7800);
+    assert.equal(pnl.costOfSales.find((c: any) => c.key === 'cogs_food'), undefined, 'food is costed by what the kitchen spends, not counted twice');
+    assert.ok(pnl.costOfSales.some((c: any) => c.key === 'kitchen'));
   });
 
   test('laundry goes on the room bill and into its own line of profit', async () => {

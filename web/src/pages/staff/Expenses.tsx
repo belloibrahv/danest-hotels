@@ -25,6 +25,7 @@ const QUICK: { category: ExpenseCategory; description: string }[] = [
   { category: 'salaries', description: 'Monthly payroll' },
   { category: 'repairs', description: 'Generator servicing' },
   { category: 'housekeeping', description: 'Toiletries, detergent & laundry' },
+  { category: 'kitchen', description: 'Market: food ingredients' },
 ];
 
 export default function Expenses() {
